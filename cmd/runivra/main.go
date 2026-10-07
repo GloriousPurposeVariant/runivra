@@ -1,8 +1,8 @@
 package main
 
 import (
-	"os"
 	"github.com/GloriousPurposeVariant/runivra/internal/cli"
+	"os"
 )
 
 func main() {
