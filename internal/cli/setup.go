@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"errors"
 	"flag"
 	"fmt"
 
@@ -34,12 +35,28 @@ func runSetup(args []string) int {
 		return 2
 	}
 
-	fmt.Println("Setup plan for", req.Environment, "with Odoo", req.Version)
-	fmt.Println("Project folder:", req.Folder())
-	for index, step := range setup.BuildPlan(req) {
-		fmt.Printf("  %d. %-16s %s\n", index+1, step.Action, step.Target)
-	}
-	fmt.Println("Nothing was changed yet.")
+	steps := setup.BuildPlan(req)
+	fmt.Println(paint(bold, "Runivra setup"), paint(dim, "·"), req.Environment, paint(dim, "·"), "Odoo", req.Version)
+	fmt.Println(paint(dim, "Project folder:"), paint(cyan, req.Folder()))
+	fmt.Println()
+	printChecklist(steps)
 
+	for index, step := range steps {
+		err := setup.Apply(step)
+		if errors.Is(err, setup.ErrNotBuiltYet) {
+			markStep(len(steps), index, boxLater, step)
+			continue
+		}
+		if err != nil {
+			markStep(len(steps), index, boxFail, step)
+			fmt.Println(paint(red, "runivra setup:"), err)
+			return 1
+		}
+		markStep(len(steps), index, boxDone, step)
+	}
+
+	fmt.Println()
+	fmt.Println(paint(green, "Done."), paint(dim, "Steps marked [-] arrive in later milestones."))
 	return 0
+
 }

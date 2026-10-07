@@ -2,9 +2,24 @@ package setup
 
 import "path/filepath"
 
+const (
+	KindFolder = "folder"
+	KindFile   = "file"
+	KindClone  = "clone"
+)
+
 type Step struct {
+	Kind   string
 	Action string
 	Target string
+}
+
+func folder(parts ...string) Step {
+	return Step{Kind: KindFolder, Action: "create folder", Target: filepath.Join(parts...)}
+}
+
+func file(parts ...string) Step {
+	return Step{Kind: KindFile, Action: "write file", Target: filepath.Join(parts...)}
 }
 
 func BuildPlan(req Request) []Step {
@@ -22,28 +37,28 @@ func BuildPlan(req Request) []Step {
 func developmentSteps(req Request) []Step {
 	base := req.Folder()
 	return []Step{
-		{Action: "clone Odoo " + req.Version, Target: base},
-		{Action: "create folder", Target: filepath.Join(base, "enterprise")},
-		{Action: "create folder", Target: filepath.Join(base, "custom")},
+		{Kind: KindClone, Action: "clone Odoo " + req.Version, Target: base},
+		folder(base, "enterprise"),
+		folder(base, "custom"),
 	}
 }
 
 func serverSteps(req Request) []Step {
 	base := req.Folder()
 	return []Step{
-		{Action: "create folder", Target: filepath.Join(base, "addons", "enterprise")},
-		{Action: "create folder", Target: filepath.Join(base, "addons", "custom")},
-		{Action: "write file", Target: filepath.Join(base, "config", "odoo.conf")},
-		{Action: "write file", Target: filepath.Join(base, "docker-compose.yml")},
-		{Action: "write file", Target: filepath.Join(base, "Dockerfile")},
-		{Action: "create folder", Target: filepath.Join(base, "logs")},
-		{Action: "create folder", Target: filepath.Join(base, "odoo_data")},
+		folder(base, "addons", "enterprise"),
+		folder(base, "addons", "custom"),
+		file(base, "config", "odoo.conf"),
+		file(base, "docker-compose.yml"),
+		file(base, "Dockerfile"),
+		folder(base, "logs"),
+		folder(base, "odoo_data"),
 	}
 }
 
 func productionSteps(req Request) []Step {
 	base := req.Folder()
 	return []Step{
-		{Action: "create folder", Target: filepath.Join(base, "backups")},
+		folder(base, "backups"),
 	}
 }
