@@ -10,8 +10,7 @@ func Run(args []string) int {
 
 	command := args[0]
 	if command == "setup" {
-		fmt.Println("Setup will start here.")
-		return 0
+		return runSetup(args[1:])
 	}
 	fmt.Println("Unknown command:", command)
 	return 2
