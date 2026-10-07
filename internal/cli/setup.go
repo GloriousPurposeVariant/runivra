@@ -18,11 +18,11 @@ func runSetup(args []string) int {
 		return 2
 	}
 
-	missing := req.Missing()
-	if len(missing) > 0 {
-		fmt.Println("runivra setup: missing options:")
-		for _, option := range missing {
-			fmt.Println("  ", option)
+	problems := req.Problems()
+	if len(problems) > 0 {
+		fmt.Println("runivra setup: problems found:")
+		for _, problem := range problems {
+			fmt.Println("  ", problem)
 		}
 		return 2
 	}
