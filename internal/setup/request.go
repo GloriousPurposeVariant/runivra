@@ -20,7 +20,7 @@ func (r Request) Problems() []string {
 
 	switch r.Environment {
 	case "":
-		problems = append(problems, "--env is required: dev, staging or prod")
+		problems = append(problems, "--env is required: dev, staging, production")
 	case "dev", "development", "stage", "staging", "prod", "production":
 	default:
 		problems = append(problems, fmt.Sprintf("--env %q is not valid: use dev, staging or prod", r.Environment))
