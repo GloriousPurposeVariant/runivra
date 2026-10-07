@@ -42,7 +42,7 @@ func runSetup(args []string) int {
 	printChecklist(steps)
 
 	for index, step := range steps {
-		err := setup.Apply(step)
+		err := setup.Apply(step, req)
 		if errors.Is(err, setup.ErrNotBuiltYet) {
 			markStep(len(steps), index, boxLater, step)
 			continue

@@ -1,0 +1,3 @@
+# Keep the build fast: only the requirements file is sent to Docker.
+*
+!custom/requirements.txt
