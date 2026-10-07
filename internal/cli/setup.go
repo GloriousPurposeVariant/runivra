@@ -39,20 +39,20 @@ func runSetup(args []string) int {
 	fmt.Println(paint(bold, "Runivra setup"), paint(dim, "·"), req.Environment, paint(dim, "·"), "Odoo", req.Version)
 	fmt.Println(paint(dim, "Project folder:"), paint(cyan, req.Folder()))
 	fmt.Println()
-	printChecklist(steps)
+	if fancy {
+		printChecklist(steps)
+		fmt.Print(hideCursor)
+		defer fmt.Print(showCursor)
+	}
 
 	for index, step := range steps {
-		err := setup.Apply(step, req)
-		if errors.Is(err, setup.ErrNotBuiltYet) {
-			markStep(len(steps), index, boxLater, step)
-			continue
-		}
-		if err != nil {
-			markStep(len(steps), index, boxFail, step)
+		err := runStep(len(steps), index, step, func() error {
+			return setup.Apply(step, req)
+		})
+		if err != nil && !errors.Is(err, setup.ErrNotBuiltYet) {
 			fmt.Println(paint(red, "runivra setup:"), err)
 			return 1
 		}
-		markStep(len(steps), index, boxDone, step)
 	}
 
 	fmt.Println()
