@@ -24,9 +24,46 @@ Early development. Development setups work end to end. Staging and production se
 
 ## Requirements
 
-- Git
-- Docker with the Compose plugin (Runivra offers to install it when missing)
-- Go 1.26 or newer, to build from source
+| Tool | Needed for | Notes |
+|---|---|---|
+| Git | Downloading Runivra, and by Runivra to download Odoo | |
+| Go 1.26 or newer | Building Runivra from source | Not needed once packaged releases exist |
+| Docker with the Compose plugin | Running the project Runivra creates | Runivra offers to install it when missing |
+
+### Installing Git and Go
+
+Ubuntu and Debian:
+
+```
+sudo apt update
+sudo apt install -y git
+sudo snap install go --classic
+```
+
+Go is installed with `snap` here because the version in `apt` is usually older than Runivra needs. If `snap` is not available, download Go from https://go.dev/dl/ and follow the instructions there.
+
+macOS, with Homebrew:
+
+```
+brew install git go
+```
+
+Windows (PowerShell):
+
+```
+winget install --exact --id Git.Git
+winget install --exact --id GoLang.Go
+```
+
+Open a new terminal afterwards, then check both are found:
+
+```
+git --version
+go version
+```
+
+`go version` must report 1.26 or newer.
+
 
 ## Install
 
