@@ -83,6 +83,14 @@ func TestApplyWritesDevelopmentFiles(t *testing.T) {
 	if !strings.Contains(string(content), "FROM odoo:19.0") {
 		t.Fatalf("Dockerfile does not use the requested version:\n%s", content)
 	}
+	conf, err := os.ReadFile(filepath.Join(req.Path, "odoo.conf"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(conf), "http_interface = 0.0.0.0") {
+		t.Fatal("odoo.conf must make Odoo listen on all interfaces, or Odoo 20 is unreachable from the host")
+	}
+
 }
 
 func TestApplyServerPlanHasNoBrokenSteps(t *testing.T) {

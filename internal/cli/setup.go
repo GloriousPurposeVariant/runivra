@@ -12,10 +12,20 @@ import (
 	"github.com/GloriousPurposeVariant/runivra/internal/tui"
 )
 
+type runOptions struct {
+	installDocker bool
+	start         bool
+	ask           bool
+}
+
 func runSetup(args []string) int {
 
 	if len(args) == 0 {
-		answers, ok, err := tui.Run()
+		answers, ok, err := tui.Run(tui.Options{
+			DockerMissing: !setup.DetectDocker(context.Background()).Ready(),
+			PortIsFree:    setup.PortIsFree,
+		})
+
 		if err != nil {
 			fmt.Println(paint(red, "runivra setup:"), err)
 			return 1
@@ -38,7 +48,9 @@ func runSetup(args []string) int {
 			CustomRepo:      answers.CustomRepo,
 			CustomBranch:    answers.CustomBranch,
 			CustomToken:     answers.CustomToken,
-		}, false, false)
+			Port:            answers.Port,
+		}, runOptions{installDocker: answers.InstallDocker, start: answers.Start, ask: false})
+
 	}
 
 	var req setup.Request
@@ -63,11 +75,11 @@ func runSetup(args []string) int {
 		return 2
 	}
 
-	return runPlan(req, installDocker, start)
+	return runPlan(req, runOptions{installDocker: installDocker, start: start, ask: true})
 
 }
 
-func runPlan(req setup.Request, installDocker bool, start bool) int {
+func runPlan(req setup.Request, options runOptions) int {
 	problems := req.Problems()
 	if len(problems) > 0 {
 		fmt.Println("runivra setup: problems found:")
@@ -94,7 +106,7 @@ func runPlan(req setup.Request, installDocker bool, start bool) int {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
-	ensureDocker(ctx, installDocker)
+	ensureDocker(ctx, options)
 
 	steps := setup.BuildPlan(req)
 	fmt.Println(paint(bold, "Runivra setup"), paint(dim, "·"), req.Environment, paint(dim, "·"), "Odoo", req.Version)
@@ -130,7 +142,7 @@ func runPlan(req setup.Request, installDocker bool, start bool) int {
 	}
 	fmt.Println(paint(green, "Done."))
 	if req.IsDevelopment() {
-		return startOdoo(ctx, req, start)
+		return startOdoo(ctx, req, options)
 	}
 	return 0
 
