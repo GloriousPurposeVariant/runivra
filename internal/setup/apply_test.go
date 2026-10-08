@@ -94,3 +94,23 @@ func TestApplyServerPlanHasNoBrokenSteps(t *testing.T) {
 		}
 	}
 }
+
+func TestApplyCopiesFolderWithoutGitHistory(t *testing.T) {
+	source := t.TempDir()
+	os.MkdirAll(filepath.Join(source, "web_enterprise"), 0o755)
+	os.MkdirAll(filepath.Join(source, ".git"), 0o755)
+	os.WriteFile(filepath.Join(source, "web_enterprise", "__manifest__.py"), []byte("{}"), 0o644)
+	os.WriteFile(filepath.Join(source, ".git", "config"), []byte("x"), 0o644)
+
+	target := filepath.Join(t.TempDir(), "enterprise")
+	step := Step{Kind: KindCopy, Source: source, Target: target}
+	if err := Apply(context.Background(), step, Request{}, nil); err != nil {
+		t.Fatalf("Apply() error = %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(target, "web_enterprise", "__manifest__.py")); err != nil {
+		t.Fatalf("the module was not copied: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(target, ".git")); err == nil {
+		t.Fatal("the .git folder must not be copied")
+	}
+}

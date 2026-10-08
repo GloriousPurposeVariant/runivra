@@ -1,6 +1,11 @@
 package setup
 
-import "testing"
+import (
+	"os"
+	"os/exec"
+	"strings"
+	"testing"
+)
 
 func TestProgressWriterReadsGitOutput(t *testing.T) {
 	var seen []Progress
@@ -20,5 +25,21 @@ func TestProgressWriterReadsGitOutput(t *testing.T) {
 	}
 	if writer.lastMessage() != "fatal: early EOF" {
 		t.Fatalf("lastMessage() = %q, want the fatal line", writer.lastMessage())
+	}
+}
+
+func TestTokenReachesGitThroughTheEnvironment(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git is not installed")
+	}
+	cmd := exec.Command("git", "-c", "credential.helper=", "-c", "credential.helper="+tokenHelper, "credential", "fill")
+	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0", "RUNIVRA_GIT_TOKEN=secret123")
+	cmd.Stdin = strings.NewReader("protocol=https\nhost=example.com\n\n")
+	output, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("git credential fill: %v", err)
+	}
+	if !strings.Contains(string(output), "password=secret123") {
+		t.Fatalf("git did not receive the token:\n%s", output)
 	}
 }

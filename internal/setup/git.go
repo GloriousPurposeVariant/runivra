@@ -55,6 +55,8 @@ func (w *progressWriter) lastMessage() string {
 	return w.last
 }
 
+const tokenHelper = `!f() { echo username=x-access-token; echo "password=$RUNIVRA_GIT_TOKEN"; }; f`
+
 func clone(ctx context.Context, step Step, report func(Progress)) error {
 	if _, err := exec.LookPath("git"); err != nil {
 		return errors.New("git is not installed or not on the PATH; install it from https://git-scm.com and run setup again")
@@ -63,12 +65,19 @@ func clone(ctx context.Context, step Step, report func(Progress)) error {
 		report = func(Progress) {}
 	}
 
-	cmd := exec.CommandContext(ctx, "git",
-		"-c", "core.longpaths=true",
-		"clone", "--progress", "--depth", "1", "--single-branch",
-		"--branch", step.Branch,
-		step.URL, step.Target,
-	)
+	args := []string{"-c", "core.longpaths=true"}
+	if step.Token != "" {
+		args = append(args, "-c", "credential.helper=", "-c", "credential.helper="+tokenHelper)
+	}
+	args = append(args, "clone", "--progress", "--branch", step.Branch)
+	if step.Shallow {
+		args = append(args, "--depth", "1", "--single-branch")
+	}
+	args = append(args, step.URL, step.Target)
+
+	cmd := exec.CommandContext(ctx, "git", args...)
+	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0", "RUNIVRA_GIT_TOKEN="+step.Token)
+
 	watcher := &progressWriter{report: report}
 	cmd.Stderr = watcher
 	err := cmd.Run()
@@ -91,9 +100,4 @@ func emptyFolder(path string) {
 	for _, entry := range entries {
 		os.RemoveAll(filepath.Join(path, entry.Name()))
 	}
-}
-
-func lastLine(text string) string {
-	lines := strings.Split(strings.TrimSpace(text), "\n")
-	return strings.TrimSpace(lines[len(lines)-1])
 }
