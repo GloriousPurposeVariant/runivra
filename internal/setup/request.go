@@ -20,6 +20,8 @@ type Request struct {
 	CustomRepo   string
 	CustomBranch string
 	CustomToken  string
+
+	Port int
 }
 
 func (r Request) Problems() []string {
