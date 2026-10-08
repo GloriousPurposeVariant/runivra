@@ -38,11 +38,12 @@ func runSetup(args []string) int {
 			CustomRepo:      answers.CustomRepo,
 			CustomBranch:    answers.CustomBranch,
 			CustomToken:     answers.CustomToken,
-		}, false)
+		}, false, false)
 	}
 
 	var req setup.Request
 	var installDocker bool
+	var start bool
 
 	flags := flag.NewFlagSet("setup", flag.ContinueOnError)
 	flags.StringVar(&req.Environment, "env", "", "dev, staging or production")
@@ -55,16 +56,18 @@ func runSetup(args []string) int {
 	flags.StringVar(&req.CustomBranch, "custom-branch", "", "branch of the custom addons (default: the Odoo version)")
 	flags.StringVar(&req.CustomToken, "custom-token", os.Getenv("RUNIVRA_CUSTOM_TOKEN"), "Git token for a private custom addons repository")
 	flags.BoolVar(&installDocker, "install-docker", false, "install Docker without asking when it is missing")
+	flags.IntVar(&req.Port, "port", 8069, "port on this computer where Odoo will answer")
+	flags.BoolVar(&start, "start", false, "start Odoo after setup without asking")
 
 	if err := flags.Parse(args); err != nil {
 		return 2
 	}
 
-	return runPlan(req, installDocker)
+	return runPlan(req, installDocker, start)
 
 }
 
-func runPlan(req setup.Request, installDocker bool) int {
+func runPlan(req setup.Request, installDocker bool, start bool) int {
 	problems := req.Problems()
 	if len(problems) > 0 {
 		fmt.Println("runivra setup: problems found:")
@@ -81,6 +84,11 @@ func runPlan(req setup.Request, installDocker bool) int {
 
 	if err := setup.CheckSources(req); err != nil {
 		fmt.Println(paint(red, "runivra setup:"), err)
+		return 2
+	}
+
+	if req.IsDevelopment() && !setup.PortIsFree(req.Port) {
+		fmt.Println(paint(red, "runivra setup:"), fmt.Sprintf("port %d is already in use; choose another with --port", req.Port))
 		return 2
 	}
 
@@ -114,11 +122,16 @@ func runPlan(req setup.Request, installDocker bool) int {
 		}
 	}
 
+	fmt.Print(showCursor)
 	fmt.Println()
 	if later > 0 {
 		fmt.Println(paint(green, "Done."), paint(dim, "Steps marked – arrive in later milestones."))
-	} else {
-		fmt.Println(paint(green, "Done."))
+		return 0
+	}
+	fmt.Println(paint(green, "Done."))
+	if req.IsDevelopment() {
+		return startOdoo(ctx, req, start)
 	}
 	return 0
+
 }
