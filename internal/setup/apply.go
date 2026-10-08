@@ -21,6 +21,9 @@ func Apply(ctx context.Context, step Step, req Request, report func(Progress)) e
 	case KindClone:
 		return clone(ctx, step, report)
 
+	case KindCopy:
+		return copyFolder(ctx, step.Source, step.Target)
+
 	default:
 		return ErrNotBuiltYet
 	}

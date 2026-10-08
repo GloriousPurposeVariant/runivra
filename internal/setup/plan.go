@@ -6,9 +6,13 @@ const (
 	KindFolder = "folder"
 	KindFile   = "file"
 	KindClone  = "clone"
+	KindCopy   = "copy"
 )
 
-const OdooRepo = "https://github.com/odoo/odoo.git"
+const (
+	OdooRepo       = "https://github.com/odoo/odoo.git"
+	EnterpriseRepo = "https://github.com/odoo/enterprise.git"
+)
 
 type Step struct {
 	Kind     string
@@ -17,6 +21,9 @@ type Step struct {
 	Template string
 	URL      string
 	Branch   string
+	Shallow  bool
+	Token    string
+	Source   string
 }
 
 func folder(parts ...string) Step {
@@ -39,12 +46,36 @@ func BuildPlan(req Request) []Step {
 	return steps
 }
 
+func enterpriseStep(req Request, target string) Step {
+	switch {
+	case req.EnterpriseToken != "":
+		return Step{Kind: KindClone, Action: "clone Enterprise", Target: target,
+			URL: EnterpriseRepo, Branch: req.Version, Shallow: true, Token: req.EnterpriseToken}
+	case req.EnterprisePath != "":
+		return Step{Kind: KindCopy, Action: "copy Enterprise", Target: target, Source: req.EnterprisePath}
+	default:
+		return folder(target)
+	}
+}
+
+func customStep(req Request, target string) Step {
+	if req.CustomRepo == "" {
+		return folder(target)
+	}
+	branch := req.CustomBranch
+	if branch == "" {
+		branch = req.Version
+	}
+	return Step{Kind: KindClone, Action: "clone custom", Target: target,
+		URL: req.CustomRepo, Branch: branch, Token: req.CustomToken}
+}
+
 func developmentSteps(req Request) []Step {
 	base := req.Folder()
 	return []Step{
-		{Kind: KindClone, Action: "clone Odoo " + req.Version, Target: base, URL: OdooRepo, Branch: req.Version},
-		folder(base, "enterprise"),
-		folder(base, "custom"),
+		{Kind: KindClone, Action: "clone Odoo " + req.Version, Target: base, URL: OdooRepo, Branch: req.Version, Shallow: true},
+		enterpriseStep(req, filepath.Join(base, "enterprise")),
+		customStep(req, filepath.Join(base, "custom")),
 		file("development/odoo.conf", base, "odoo.conf"),
 		file("development/Dockerfile", base, "Dockerfile"),
 		file("development/docker-compose.yml", base, "docker-compose.yml"),
@@ -55,8 +86,8 @@ func developmentSteps(req Request) []Step {
 func serverSteps(req Request) []Step {
 	base := req.Folder()
 	return []Step{
-		folder(base, "addons", "enterprise"),
-		folder(base, "addons", "custom"),
+		enterpriseStep(req, filepath.Join(base, "addons", "enterprise")),
+		customStep(req, filepath.Join(base, "addons", "custom")),
 		file("", base, "config", "odoo.conf"),
 		file("", base, "docker-compose.yml"),
 		file("", base, "Dockerfile"),

@@ -13,6 +13,13 @@ type Request struct {
 	Version     string
 	Path        string
 	Name        string
+
+	EnterpriseToken string
+	EnterprisePath  string
+
+	CustomRepo   string
+	CustomBranch string
+	CustomToken  string
 }
 
 func (r Request) Problems() []string {
@@ -32,6 +39,13 @@ func (r Request) Problems() []string {
 
 	if strings.ContainsAny(r.Name, `/\`) {
 		problems = append(problems, "--name must be a folder name, not a path; put the location in --path")
+	}
+
+	if r.EnterpriseToken != "" && r.EnterprisePath != "" {
+		problems = append(problems, "give --enterprise-token or --enterprise-path, not both")
+	}
+	if r.CustomRepo == "" && (r.CustomBranch != "" || r.CustomToken != "") {
+		problems = append(problems, "--custom-branch and --custom-token need --custom-repo")
 	}
 
 	return problems
@@ -62,6 +76,17 @@ func CheckFolder(folder string) error {
 	}
 	if len(entries) > 0 {
 		return fmt.Errorf("%s is not empty; choose another --path, or add --name to create a new folder inside it", folder)
+	}
+	return nil
+}
+
+func CheckSources(req Request) error {
+	if req.EnterprisePath == "" {
+		return nil
+	}
+	info, err := os.Stat(req.EnterprisePath)
+	if err != nil || !info.IsDir() {
+		return fmt.Errorf("--enterprise-path %s is not a folder", req.EnterprisePath)
 	}
 	return nil
 }

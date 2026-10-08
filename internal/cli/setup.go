@@ -19,6 +19,11 @@ func runSetup(args []string) int {
 	flags.StringVar(&req.Version, "version", "", "Odoo version, for example 19.0")
 	flags.StringVar(&req.Path, "path", ".", "project folder, created if it does not exist")
 	flags.StringVar(&req.Name, "name", "", "create a folder with this name inside the path and build there")
+	flags.StringVar(&req.EnterpriseToken, "enterprise-token", os.Getenv("RUNIVRA_ENTERPRISE_TOKEN"), "Git token used to clone Odoo Enterprise")
+	flags.StringVar(&req.EnterprisePath, "enterprise-path", "", "copy Odoo Enterprise from this local folder")
+	flags.StringVar(&req.CustomRepo, "custom-repo", "", "Git repository of your custom addons")
+	flags.StringVar(&req.CustomBranch, "custom-branch", "", "branch of the custom addons (default: the Odoo version)")
+	flags.StringVar(&req.CustomToken, "custom-token", os.Getenv("RUNIVRA_CUSTOM_TOKEN"), "Git token for a private custom addons repository")
 
 	if err := flags.Parse(args); err != nil {
 		return 2
@@ -35,6 +40,11 @@ func runSetup(args []string) int {
 
 	if err := setup.CheckFolder(req.Folder()); err != nil {
 		fmt.Println("runivra setup:", err)
+		return 2
+	}
+
+	if err := setup.CheckSources(req); err != nil {
+		fmt.Println(paint(red, "runivra setup:"), err)
 		return 2
 	}
 
