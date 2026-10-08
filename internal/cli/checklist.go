@@ -3,6 +3,7 @@ package cli
 import (
 	"errors"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -18,9 +19,22 @@ var (
 	markLater = paint(yellow, "–")
 )
 
+var checklistRoot string
+
+func shortTarget(target string) string {
+	if checklistRoot == "" {
+		return target
+	}
+	relative, err := filepath.Rel(checklistRoot, target)
+	if err != nil || strings.HasPrefix(relative, "..") {
+		return target
+	}
+	return relative
+}
+
 func checklistLine(mark string, step setup.Step, note string) string {
 	action := fmt.Sprintf("%-16s", step.Action)
-	return " " + mark + " " + action + " " + paint(cyan, step.Target) + "  " + paint(dim, note)
+	return " " + mark + " " + action + " " + paint(cyan, shortTarget(step.Target)) + "  " + paint(dim, note)
 }
 
 func printChecklist(steps []setup.Step) {

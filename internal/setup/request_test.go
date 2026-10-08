@@ -39,3 +39,12 @@ func TestCheckFolder(t *testing.T) {
 		t.Fatal("a folder with a file in it was accepted")
 	}
 }
+
+func TestProblemsRejectsUnsupportedVersion(t *testing.T) {
+	for _, version := range []string{"15.0", "21.0", "banana", "19"} {
+		req := Request{Environment: "dev", Version: version}
+		if len(req.Problems()) != 1 {
+			t.Fatalf("version %q was accepted; problems = %v", version, req.Problems())
+		}
+	}
+}

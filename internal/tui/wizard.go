@@ -52,6 +52,7 @@ type Answers struct {
 type Options struct {
 	DockerMissing bool
 	PortIsFree    func(port int) bool
+	Versions      []string
 }
 
 type question struct {
@@ -91,9 +92,14 @@ func questions(options Options) []question {
 		return isDev(a) && (!options.DockerMissing || a["docker"] == optInstall)
 	}
 
+	versions := options.Versions
+	if len(versions) == 0 {
+		versions = []string{"20.0", "19.0", "18.0", "17.0", "16.0"}
+	}
+
 	return []question{
 		{key: "environment", title: "Which environment are you setting up?", options: []string{"development", "staging", "production"}},
-		{key: "version", title: "Which Odoo version?", options: []string{"20.0", "19.0", "18.0", "17.0", "16.0"}},
+		{key: "version", title: "Which Odoo version?", options: versions},
 		{key: "path", title: "Where should the project live?", browse: true},
 		{key: "name", title: "Name for a new project folder", help: "Created inside that location. Leave empty to build directly in it; it must then be empty."},
 		{key: "enterprise", title: "Do you need Odoo Enterprise?", options: []string{optNoEnterprise, optToken, optCopy}},
@@ -119,6 +125,8 @@ type model struct {
 	browser   browser
 	note      string
 	noteOK    bool
+	height    int
+	offset    int
 }
 
 func newModel() model {
@@ -244,13 +252,51 @@ func (m model) optionStart() int {
 	return firstOptionRow
 }
 
+func (m model) capacity() int {
+	total := len(m.options())
+	if m.height == 0 {
+		return total
+	}
+	reserved := m.optionStart() + 3
+	if m.current().browse {
+		reserved += 2
+	}
+	room := m.height - reserved
+	if room < 3 {
+		room = 3
+	}
+	if room > total {
+		room = total
+	}
+	return room
+}
+
+func (m *model) scroll() {
+	room := m.capacity()
+	if m.cursor < m.offset {
+		m.offset = m.cursor
+	}
+	if m.cursor >= m.offset+room {
+		m.offset = m.cursor - room + 1
+	}
+	if limit := len(m.options()) - room; m.offset > limit {
+		m.offset = limit
+	}
+	if m.offset < 0 {
+		m.offset = 0
+	}
+}
+
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	q := m.current()
 	options := m.options()
 	isChoice := len(options) > 0
 
 	switch msg := msg.(type) {
+	case tea.WindowSizeMsg:
+		m.height = msg.Height
 	case tea.KeyMsg:
+
 		switch msg.Type {
 		case tea.KeyCtrlC:
 			return m, tea.Quit
@@ -286,18 +332,29 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 	case tea.MouseMsg:
-		row := msg.Y - m.optionStart()
-		if !isChoice || row < 0 || row >= len(options) {
+		if isChoice && msg.Button == tea.MouseButtonWheelUp && m.cursor > 0 {
+			m.cursor--
 			break
 		}
-		m.cursor = row
+		if isChoice && msg.Button == tea.MouseButtonWheelDown && m.cursor < len(options)-1 {
+			m.cursor++
+			break
+		}
+		row := msg.Y - m.optionStart()
+		if !isChoice || row < 0 || row >= m.capacity() {
+			break
+		}
+		m.cursor = m.offset + row
+
 		if msg.Action == tea.MouseActionPress && msg.Button == tea.MouseButtonLeft {
 			if m.accept() {
 				return m, tea.Quit
 			}
 		}
 	}
+	m.scroll()
 	return m, nil
+
 }
 
 func (m model) progress() string {
@@ -343,7 +400,9 @@ func (m model) View() string {
 	}
 
 	if len(options) > 0 {
-		for index, option := range options {
+		end := m.offset + m.capacity()
+		for index := m.offset; index < end; index++ {
+			option := options[index]
 
 			if index == m.cursor {
 				b.WriteString("  " + activeStyle.Render("❯ "+option) + "\n")
@@ -351,11 +410,15 @@ func (m model) View() string {
 				b.WriteString("    " + option + "\n")
 			}
 		}
+		more := ""
+		if hidden := len(options) - end; hidden > 0 || m.offset > 0 {
+			more = fmt.Sprintf("%d above · %d below · ", m.offset, hidden)
+		}
 		if q.browse {
 			b.WriteString("\n  " + dimStyle.Render("Search: ") + m.browser.filter + activeStyle.Render("█") + "\n")
-			b.WriteString("\n  " + dimStyle.Render("Type to search · ↑/↓ or mouse · Enter or click to open · Esc to go back"))
+			b.WriteString("\n  " + dimStyle.Render(more+"Type to search · ↑/↓ or mouse · Enter or click to open · Esc to go back"))
 		} else {
-			b.WriteString("\n  " + dimStyle.Render("↑/↓ or mouse to choose · Enter or click to confirm · Esc to go back"))
+			b.WriteString("\n  " + dimStyle.Render(more+"↑/↓ or mouse to choose · Enter or click to confirm · Esc to go back"))
 		}
 	} else {
 		shown := m.input

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"os/signal"
 
@@ -18,12 +19,43 @@ type runOptions struct {
 	ask           bool
 }
 
+const setupUsage = `Create an Odoo project folder.
+
+Usage:
+  runivra setup                                   open the wizard
+  runivra setup --env dev --version 20.0 [options]
+
+Required:
+  --env ENV                 dev, staging or prod
+  --version VERSION         16.0, 17.0, 18.0, 19.0 or 20.0
+
+Location:
+  --path DIR                where to build (default: the current folder)
+  --name NAME               create a new folder with this name inside the path
+
+Sources:
+  --enterprise-token TOKEN  clone Odoo Enterprise with a Git token
+  --enterprise-path DIR     copy Odoo Enterprise from a local folder
+  --custom-repo URL         clone your custom addons
+  --custom-branch BRANCH    branch to clone (default: the Odoo version)
+  --custom-token TOKEN      token for a private custom addons repository
+
+Running:
+  --port PORT               port for Odoo on this computer (default: 8069)
+  --start                   start Odoo afterwards without asking
+  --install-docker          install Docker without asking when it is missing
+
+Tokens can also be set as RUNIVRA_ENTERPRISE_TOKEN and RUNIVRA_CUSTOM_TOKEN,
+which keeps them out of your shell history.
+`
+
 func runSetup(args []string) int {
 
 	if len(args) == 0 {
 		answers, ok, err := tui.Run(tui.Options{
 			DockerMissing: !setup.DetectDocker(context.Background()).Ready(),
 			PortIsFree:    setup.PortIsFree,
+			Versions:      setup.SupportedVersions,
 		})
 
 		if err != nil {
@@ -58,6 +90,7 @@ func runSetup(args []string) int {
 	var start bool
 
 	flags := flag.NewFlagSet("setup", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
 	flags.StringVar(&req.Environment, "env", "", "dev, staging or production")
 	flags.StringVar(&req.Version, "version", "", "Odoo version, for example 19.0")
 	flags.StringVar(&req.Path, "path", ".", "project folder, created if it does not exist")
@@ -72,6 +105,12 @@ func runSetup(args []string) int {
 	flags.BoolVar(&start, "start", false, "start Odoo after setup without asking")
 
 	if err := flags.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			fmt.Print(setupUsage)
+			return 0
+		}
+		fmt.Println(paint(red, "runivra setup:"), err)
+		fmt.Println("Run \"runivra setup --help\" to see the options.")
 		return 2
 	}
 
@@ -107,6 +146,8 @@ func runPlan(req setup.Request, options runOptions) int {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 	ensureDocker(ctx, options)
+
+	checklistRoot = req.Folder()
 
 	steps := setup.BuildPlan(req)
 	fmt.Println(paint(bold, "Runivra setup"), paint(dim, "·"), req.Environment, paint(dim, "·"), "Odoo", req.Version)
