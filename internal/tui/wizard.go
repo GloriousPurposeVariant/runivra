@@ -1,47 +1,236 @@
 package tui
 
 import (
+	"fmt"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 )
 
-const firstOptionRow = 4
+const (
+	optNoEnterprise = "No, Community only"
+	optToken        = "Yes, clone it with a Git token"
+	optCopy         = "Yes, copy it from a local folder (not recommended)"
+	optStart        = "Start setup"
+	optCancel       = "Cancel"
+)
+
+const tokenHelp = "Typing is hidden. The token stays on this computer: it is not saved to any file and is only handed to Git for this download."
+
+const firstOptionRow = 7
+
+var (
+	titleStyle  = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("6"))
+	askStyle    = lipgloss.NewStyle().Bold(true)
+	dimStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
+	activeStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("6"))
+	doneStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("2"))
+)
+
+type Answers struct {
+	Environment     string
+	Version         string
+	Path            string
+	Name            string
+	EnterpriseToken string
+	EnterprisePath  string
+	CustomRepo      string
+	CustomBranch    string
+	CustomToken     string
+}
+
+type question struct {
+	key     string
+	title   string
+	help    string
+	options []string
+	secret  bool
+	summary bool
+	show    func(answers map[string]string) bool
+	browse  bool
+}
+
+func questions() []question {
+	wantsToken := func(a map[string]string) bool { return a["enterprise"] == optToken }
+	wantsCopy := func(a map[string]string) bool { return a["enterprise"] == optCopy }
+	hasRepo := func(a map[string]string) bool { return a["customRepo"] != "" }
+
+	return []question{
+		{key: "environment", title: "Which environment are you setting up?", options: []string{"development", "staging", "production"}},
+		{key: "version", title: "Which Odoo version?", options: []string{"20.0", "19.0", "18.0", "17.0", "16.0"}},
+		{key: "path", title: "Where should the project live?", browse: true},
+		{key: "name", title: "Name for a new project folder", help: "Created inside that location. Leave empty to build directly in it; it must then be empty."},
+		{key: "enterprise", title: "Do you need Odoo Enterprise?", options: []string{optNoEnterprise, optToken, optCopy}},
+		{key: "enterpriseToken", title: "Paste your Git token for Odoo Enterprise", help: tokenHelp, secret: true, show: wantsToken},
+		{key: "enterprisePath", title: "Where is your local copy of Odoo Enterprise?", help: "Type the full path of the folder.", show: wantsCopy},
+		{key: "customRepo", title: "Git repository of your custom addons", help: "Paste the repository address, or leave empty to start with an empty custom folder."},
+		{key: "customBranch", title: "Which branch do you develop on?", help: "Leave empty to use the Odoo version as the branch name.", show: hasRepo},
+		{key: "customToken", title: "Git token for that repository", help: "Leave empty for a public repository. " + tokenHelp, secret: true, show: hasRepo},
+		{key: "confirm", title: "Ready to start?", options: []string{optStart, optCancel}, summary: true},
+	}
+}
 
 type model struct {
-	options []string
-	cursor  int
-	chosen  string
+	questions []question
+	answers   map[string]string
+	index     int
+	cursor    int
+	input     string
+	finished  bool
+	browser   browser
+}
+
+func newModel() model {
+	return model{questions: questions(), answers: map[string]string{}}
 }
 
 func (m model) Init() tea.Cmd {
 	return nil
 }
 
+func (m model) current() question {
+	return m.questions[m.index]
+}
+
+func (m model) visible(index int) bool {
+	show := m.questions[index].show
+	return show == nil || show(m.answers)
+}
+
+func (m *model) load() {
+	q := m.current()
+	m.input = m.answers[q.key]
+	m.cursor = 0
+	if q.browse {
+		m.open(m.startFolder())
+		return
+	}
+	for index, option := range q.options {
+		if option == m.answers[q.key] {
+			m.cursor = index
+		}
+	}
+}
+
+func (m *model) forward() {
+	for m.index < len(m.questions)-1 {
+		m.index++
+		if m.visible(m.index) {
+			break
+		}
+	}
+	m.load()
+}
+
+func (m *model) back() bool {
+	for index := m.index - 1; index >= 0; index-- {
+		if m.visible(index) {
+			m.index = index
+			m.load()
+			return true
+		}
+	}
+	return false
+}
+
+func (m *model) accept() bool {
+	q := m.current()
+	switch {
+	case q.browse:
+		if !m.pick() {
+			return false
+		}
+	case len(q.options) > 0:
+		m.answers[q.key] = q.options[m.cursor]
+	default:
+		m.answers[q.key] = strings.TrimSpace(m.input)
+	}
+
+	if q.key == "confirm" {
+		m.finished = m.answers[q.key] == optStart
+		return true
+	}
+	m.forward()
+	return false
+}
+
+func (m model) summaryLines() []string {
+	a := m.answers
+	folder := a["path"]
+	if folder == "" {
+		folder = "the current folder"
+	}
+	if a["name"] != "" {
+		folder += " / " + a["name"]
+	}
+	custom := "empty folder"
+	if a["customRepo"] != "" {
+		custom = a["customRepo"]
+	}
+	return []string{
+		"Environment    " + a["environment"],
+		"Odoo version   " + a["version"],
+		"Folder         " + folder,
+		"Enterprise     " + a["enterprise"],
+		"Custom addons  " + custom,
+	}
+}
+
+func (m model) optionStart() int {
+	if m.current().summary {
+		return firstOptionRow + len(m.summaryLines()) + 1
+	}
+	return firstOptionRow
+}
+
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	q := m.current()
+	options := m.options()
+	isChoice := len(options) > 0
+
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
-		switch msg.String() {
-		case "ctrl+c", "q", "esc":
+		switch msg.Type {
+		case tea.KeyCtrlC:
 			return m, tea.Quit
-		case "up":
-			if m.cursor > 0 {
+		case tea.KeyEsc:
+			if !m.back() {
+				return m, tea.Quit
+			}
+		case tea.KeyEnter:
+			if m.accept() {
+				return m, tea.Quit
+			}
+		case tea.KeyUp:
+			if isChoice && m.cursor > 0 {
 				m.cursor--
 			}
-		case "down":
-			if m.cursor < len(m.options)-1 {
+		case tea.KeyDown:
+			if isChoice && m.cursor < len(options)-1 {
 				m.cursor++
 			}
-		case "enter":
-			m.chosen = m.options[m.cursor]
-			return m, tea.Quit
+		case tea.KeyBackspace:
+			if q.browse {
+				m.search(trimLast(m.browser.filter))
+			} else if !isChoice {
+				m.input = trimLast(m.input)
+			}
+		case tea.KeyRunes, tea.KeySpace:
+			if q.browse {
+				m.search(m.browser.filter + string(msg.Runes))
+			} else if !isChoice {
+				m.input += string(msg.Runes)
+			}
 		}
 	case tea.MouseMsg:
+		row := msg.Y - m.optionStart()
+		if !isChoice || row < 0 || row >= len(options) {
+			break
+		}
+		m.cursor = row
 		if msg.Action == tea.MouseActionPress && msg.Button == tea.MouseButtonLeft {
-			row := msg.Y - firstOptionRow
-			if row >= 0 && row < len(m.options) {
-				m.cursor = row
-				m.chosen = m.options[row]
+			if m.accept() {
 				return m, tea.Quit
 			}
 		}
@@ -49,26 +238,95 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m model) View() string {
-	var b strings.Builder
-	b.WriteString("Runivra setup\n\n")
-	b.WriteString("Which environment are you setting up?\n\n")
-	for index, option := range m.options {
-		marker := "  "
-		if index == m.cursor {
-			marker = "> "
+func (m model) progress() string {
+	total, position := 0, 0
+	for index := range m.questions {
+		if !m.visible(index) {
+			continue
 		}
-		b.WriteString(marker + option + "\n")
+		total++
+		if index <= m.index {
+			position++
+		}
 	}
-	b.WriteString("\nUp/Down or click to choose, Enter to confirm, Q to quit\n")
+	dots := doneStyle.Render(strings.Repeat("●", position)) + dimStyle.Render(strings.Repeat("○", total-position))
+	return dots + dimStyle.Render(fmt.Sprintf("  Step %d of %d", position, total))
+}
+
+func (m model) View() string {
+	q := m.current()
+	options := m.options()
+	help := q.help
+	if q.browse {
+		help = m.browser.dir
+		if help == "" {
+			help = "This computer"
+		}
+	}
+	var b strings.Builder
+
+	b.WriteString("\n")
+	b.WriteString("  " + titleStyle.Render("Runivra setup") + "\n")
+	b.WriteString("  " + m.progress() + "\n")
+	b.WriteString("\n")
+	b.WriteString("  " + askStyle.Render(q.title) + "\n")
+	b.WriteString("  " + dimStyle.Render(help) + "\n")
+	b.WriteString("\n")
+
+	if q.summary {
+		for _, line := range m.summaryLines() {
+			b.WriteString("  " + line + "\n")
+		}
+		b.WriteString("\n")
+	}
+
+	if len(options) > 0 {
+		for index, option := range options {
+
+			if index == m.cursor {
+				b.WriteString("  " + activeStyle.Render("❯ "+option) + "\n")
+			} else {
+				b.WriteString("    " + option + "\n")
+			}
+		}
+		if q.browse {
+			b.WriteString("\n  " + dimStyle.Render("Search: ") + m.browser.filter + activeStyle.Render("█") + "\n")
+			b.WriteString("\n  " + dimStyle.Render("Type to search · ↑/↓ or mouse · Enter or click to open · Esc to go back"))
+		} else {
+			b.WriteString("\n  " + dimStyle.Render("↑/↓ or mouse to choose · Enter or click to confirm · Esc to go back"))
+		}
+	} else {
+		shown := m.input
+		if q.secret {
+			shown = strings.Repeat("•", len([]rune(m.input)))
+		}
+		b.WriteString("  " + activeStyle.Render("❯ ") + shown + activeStyle.Render("█") + "\n")
+		b.WriteString("\n  " + dimStyle.Render("Type your answer · Enter to continue · Esc to go back"))
+	}
+	b.WriteString("\n")
 	return b.String()
 }
 
-func ChooseEnvironment() (string, error) {
-	start := model{options: []string{"development", "staging", "production"}}
-	final, err := tea.NewProgram(start, tea.WithAltScreen(), tea.WithMouseCellMotion()).Run()
+func Run() (Answers, bool, error) {
+	program := tea.NewProgram(newModel(), tea.WithAltScreen(), tea.WithMouseAllMotion())
+	final, err := program.Run()
 	if err != nil {
-		return "", err
+		return Answers{}, false, err
 	}
-	return final.(model).chosen, nil
+	m := final.(model)
+	if !m.finished {
+		return Answers{}, false, nil
+	}
+	a := m.answers
+	return Answers{
+		Environment:     a["environment"],
+		Version:         a["version"],
+		Path:            a["path"],
+		Name:            a["name"],
+		EnterpriseToken: a["enterpriseToken"],
+		EnterprisePath:  a["enterprisePath"],
+		CustomRepo:      a["customRepo"],
+		CustomBranch:    a["customBranch"],
+		CustomToken:     a["customToken"],
+	}, true, nil
 }
