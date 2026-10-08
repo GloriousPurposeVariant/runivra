@@ -9,9 +9,38 @@ import (
 	"os/signal"
 
 	"github.com/GloriousPurposeVariant/runivra/internal/setup"
+	"github.com/GloriousPurposeVariant/runivra/internal/tui"
 )
 
 func runSetup(args []string) int {
+
+	if len(args) == 0 {
+		answers, ok, err := tui.Run()
+		if err != nil {
+			fmt.Println(paint(red, "runivra setup:"), err)
+			return 1
+		}
+		if !ok {
+			fmt.Println("Setup cancelled.")
+			return 0
+		}
+		path := answers.Path
+		if path == "" {
+			path = "."
+		}
+		return runPlan(setup.Request{
+			Environment:     answers.Environment,
+			Version:         answers.Version,
+			Path:            path,
+			Name:            answers.Name,
+			EnterpriseToken: answers.EnterpriseToken,
+			EnterprisePath:  answers.EnterprisePath,
+			CustomRepo:      answers.CustomRepo,
+			CustomBranch:    answers.CustomBranch,
+			CustomToken:     answers.CustomToken,
+		}, false)
+	}
+
 	var req setup.Request
 	var installDocker bool
 
@@ -31,6 +60,11 @@ func runSetup(args []string) int {
 		return 2
 	}
 
+	return runPlan(req, installDocker)
+
+}
+
+func runPlan(req setup.Request, installDocker bool) int {
 	problems := req.Problems()
 	if len(problems) > 0 {
 		fmt.Println("runivra setup: problems found:")
@@ -87,5 +121,4 @@ func runSetup(args []string) int {
 		fmt.Println(paint(green, "Done."))
 	}
 	return 0
-
 }
