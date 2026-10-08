@@ -4,6 +4,20 @@ Runivra sets up Odoo projects from one command. It clones the sources, writes th
 
 It is an independent tool for working with Odoo and is not an Odoo S.A. product.
 
+## The name
+
+Runivra is built from the areas the tool is meant to cover:
+
+| Letter | Stands for |
+|---|---|
+| **R** | Runtime |
+| **U** | Upgrades |
+| **N** | Nodes |
+| **I** | Infrastructure |
+| **V** | Versioning |
+| **R** | Recovery |
+| **A** | Automation |
+
 ## Status
 
 Early development. Development setups work end to end. Staging and production setups create the folder layout only; their configuration files are not generated yet.
