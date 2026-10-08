@@ -3,6 +3,7 @@ package cli
 import (
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/GloriousPurposeVariant/runivra/internal/setup"
@@ -48,32 +49,50 @@ func resultMark(err error) string {
 	}
 }
 
-func runStep(total int, index int, step setup.Step, work func() error) error {
+func progressBar(p setup.Progress) string {
+	const width = 20
+	filled := p.Percent * width / 100
+	bar := strings.Repeat("█", filled) + strings.Repeat("░", width-filled)
+	return fmt.Sprintf("%s %s %3d%%", p.Label, bar, p.Percent)
+}
+
+func runStep(total int, index int, step setup.Step, work func(report func(setup.Progress)) error) error {
 	start := time.Now()
 
 	if !fancy {
-		err := work()
+		err := work(func(setup.Progress) {})
 		fmt.Println(checklistLine(resultMark(err), step, seconds(start)))
 		return err
 	}
 
+	progress := make(chan setup.Progress, 16)
+	report := func(p setup.Progress) {
+		select {
+		case progress <- p:
+		default:
+		}
+	}
+
 	done := make(chan error, 1)
 	go func() {
-		done <- work()
+		done <- work(report)
 	}()
 
 	ticker := time.NewTicker(80 * time.Millisecond)
 	defer ticker.Stop()
 
 	frame := 0
+	note := ""
 	for {
 		select {
 		case err := <-done:
 			markStep(total, index, checklistLine(resultMark(err), step, seconds(start)))
 			return err
+		case p := <-progress:
+			note = progressBar(p) + "  "
 		case <-ticker.C:
 			spinner := paint(cyan, spinnerFrames[frame%len(spinnerFrames)])
-			markStep(total, index, checklistLine(spinner, step, seconds(start)))
+			markStep(total, index, checklistLine(spinner, step, note+seconds(start)))
 			frame++
 		}
 	}

@@ -1,9 +1,12 @@
 package cli
 
 import (
+	"context"
 	"errors"
 	"flag"
 	"fmt"
+	"os"
+	"os/signal"
 
 	"github.com/GloriousPurposeVariant/runivra/internal/setup"
 )
@@ -35,6 +38,9 @@ func runSetup(args []string) int {
 		return 2
 	}
 
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer stop()
+
 	steps := setup.BuildPlan(req)
 	fmt.Println(paint(bold, "Runivra setup"), paint(dim, "·"), req.Environment, paint(dim, "·"), "Odoo", req.Version)
 	fmt.Println(paint(dim, "Project folder:"), paint(cyan, req.Folder()))
@@ -45,18 +51,28 @@ func runSetup(args []string) int {
 		defer fmt.Print(showCursor)
 	}
 
+	later := 0
 	for index, step := range steps {
-		err := runStep(len(steps), index, step, func() error {
-			return setup.Apply(step, req)
+		err := runStep(len(steps), index, step, func(report func(setup.Progress)) error {
+			return setup.Apply(ctx, step, req, report)
 		})
-		if err != nil && !errors.Is(err, setup.ErrNotBuiltYet) {
+
+		if errors.Is(err, setup.ErrNotBuiltYet) {
+			later++
+			continue
+		}
+		if err != nil {
 			fmt.Println(paint(red, "runivra setup:"), err)
 			return 1
 		}
 	}
 
 	fmt.Println()
-	fmt.Println(paint(green, "Done."), paint(dim, "Steps marked [-] arrive in later milestones."))
+	if later > 0 {
+		fmt.Println(paint(green, "Done."), paint(dim, "Steps marked – arrive in later milestones."))
+	} else {
+		fmt.Println(paint(green, "Done."))
+	}
 	return 0
 
 }
