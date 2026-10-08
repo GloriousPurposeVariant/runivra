@@ -13,6 +13,7 @@ import (
 
 func runSetup(args []string) int {
 	var req setup.Request
+	var installDocker bool
 
 	flags := flag.NewFlagSet("setup", flag.ContinueOnError)
 	flags.StringVar(&req.Environment, "env", "", "dev, staging or production")
@@ -24,6 +25,7 @@ func runSetup(args []string) int {
 	flags.StringVar(&req.CustomRepo, "custom-repo", "", "Git repository of your custom addons")
 	flags.StringVar(&req.CustomBranch, "custom-branch", "", "branch of the custom addons (default: the Odoo version)")
 	flags.StringVar(&req.CustomToken, "custom-token", os.Getenv("RUNIVRA_CUSTOM_TOKEN"), "Git token for a private custom addons repository")
+	flags.BoolVar(&installDocker, "install-docker", false, "install Docker without asking when it is missing")
 
 	if err := flags.Parse(args); err != nil {
 		return 2
@@ -50,6 +52,7 @@ func runSetup(args []string) int {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
+	ensureDocker(ctx, installDocker)
 
 	steps := setup.BuildPlan(req)
 	fmt.Println(paint(bold, "Runivra setup"), paint(dim, "·"), req.Environment, paint(dim, "·"), "Odoo", req.Version)
