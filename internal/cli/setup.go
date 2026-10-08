@@ -9,9 +9,25 @@ import (
 	"os/signal"
 
 	"github.com/GloriousPurposeVariant/runivra/internal/setup"
+	"github.com/GloriousPurposeVariant/runivra/internal/tui"
 )
 
 func runSetup(args []string) int {
+
+	if len(args) == 0 {
+		environment, err := tui.ChooseEnvironment()
+		if err != nil {
+			fmt.Println(paint(red, "runivra setup:"), err)
+			return 1
+		}
+		if environment == "" {
+			fmt.Println("Setup cancelled.")
+			return 0
+		}
+		fmt.Println("You chose:", environment)
+		return 0
+	}
+
 	var req setup.Request
 	var installDocker bool
 
