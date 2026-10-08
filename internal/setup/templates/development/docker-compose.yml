@@ -12,7 +12,7 @@ services:
       - ./enterprise:/opt/odoo/enterprise
       - ./odoo.conf:/etc/odoo/odoo.conf
       - odoo-data:/var/lib/odoo
-    command: ["odoo", "--dev=all"]
+    command: ["odoo", "--dev=xml"]
 
 
   db:

@@ -17,12 +17,16 @@ func askYesNo(question string) bool {
 	return answer == "y" || answer == "yes"
 }
 
-func ensureDocker(ctx context.Context, install bool) {
+func ensureDocker(ctx context.Context, options runOptions) {
 	if setup.DetectDocker(ctx).Ready() {
 		return
 	}
 
+	install := options.installDocker
 	fmt.Println(paint(yellow, "Docker and Docker Compose are needed to run this project and were not found."))
+	if !install && options.ask && fancy {
+		install = askYesNo("Install Docker now?")
+	}
 	if !install && fancy {
 		install = askYesNo("Install Docker now?")
 	}

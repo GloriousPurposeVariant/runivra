@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -14,6 +15,10 @@ const (
 	optCopy         = "Yes, copy it from a local folder (not recommended)"
 	optStart        = "Start setup"
 	optCancel       = "Cancel"
+	optInstall      = "Yes, install Docker"
+	optNoInstall    = "No, continue without it"
+	optStartNow     = "Yes, start it"
+	optStartLater   = "No, I will start it later"
 )
 
 const tokenHelp = "Typing is hidden. The token stays on this computer: it is not saved to any file and is only handed to Git for this download."
@@ -26,6 +31,7 @@ var (
 	dimStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
 	activeStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("6"))
 	doneStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("2"))
+	errorStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("1"))
 )
 
 type Answers struct {
@@ -38,6 +44,14 @@ type Answers struct {
 	CustomRepo      string
 	CustomBranch    string
 	CustomToken     string
+	Port            int
+	InstallDocker   bool
+	Start           bool
+}
+
+type Options struct {
+	DockerMissing bool
+	PortIsFree    func(port int) bool
 }
 
 type question struct {
@@ -49,12 +63,33 @@ type question struct {
 	summary bool
 	show    func(answers map[string]string) bool
 	browse  bool
+	initial string
+	check   func(input string) (string, bool)
 }
 
-func questions() []question {
+func portCheck(isFree func(port int) bool) func(input string) (string, bool) {
+	return func(input string) (string, bool) {
+		port, err := strconv.Atoi(strings.TrimSpace(input))
+		if err != nil || port < 1 || port > 65535 {
+			return "Type a port number between 1 and 65535.", false
+		}
+		if isFree != nil && !isFree(port) {
+			return fmt.Sprintf("Port %d is already in use. Try another one.", port), false
+		}
+		return fmt.Sprintf("Port %d is free.", port), true
+	}
+}
+
+func questions(options Options) []question {
+
 	wantsToken := func(a map[string]string) bool { return a["enterprise"] == optToken }
 	wantsCopy := func(a map[string]string) bool { return a["enterprise"] == optCopy }
 	hasRepo := func(a map[string]string) bool { return a["customRepo"] != "" }
+	isDev := func(a map[string]string) bool { return a["environment"] == "development" }
+	noDocker := func(a map[string]string) bool { return options.DockerMissing }
+	willHaveDocker := func(a map[string]string) bool {
+		return isDev(a) && (!options.DockerMissing || a["docker"] == optInstall)
+	}
 
 	return []question{
 		{key: "environment", title: "Which environment are you setting up?", options: []string{"development", "staging", "production"}},
@@ -67,6 +102,9 @@ func questions() []question {
 		{key: "customRepo", title: "Git repository of your custom addons", help: "Paste the repository address, or leave empty to start with an empty custom folder."},
 		{key: "customBranch", title: "Which branch do you develop on?", help: "Leave empty to use the Odoo version as the branch name.", show: hasRepo},
 		{key: "customToken", title: "Git token for that repository", help: "Leave empty for a public repository. " + tokenHelp, secret: true, show: hasRepo},
+		{key: "port", title: "Which port should Odoo use on this computer?", help: "You will open Odoo at http://localhost:<port>.", initial: "8069", check: portCheck(options.PortIsFree), show: isDev},
+		{key: "docker", title: "Docker was not found. Install it now?", help: "Docker and Docker Compose are needed to run the project.", options: []string{optInstall, optNoInstall}, show: noDocker},
+		{key: "start", title: "Start Odoo when setup finishes?", options: []string{optStartNow, optStartLater}, show: willHaveDocker},
 		{key: "confirm", title: "Ready to start?", options: []string{optStart, optCancel}, summary: true},
 	}
 }
@@ -79,10 +117,23 @@ type model struct {
 	input     string
 	finished  bool
 	browser   browser
+	note      string
+	noteOK    bool
 }
 
 func newModel() model {
-	return model{questions: questions(), answers: map[string]string{}}
+	return newModelWith(Options{})
+}
+
+func newModelWith(options Options) model {
+	return model{questions: questions(options), answers: map[string]string{}}
+}
+
+func (m *model) validate() {
+	m.note, m.noteOK = "", true
+	if check := m.current().check; check != nil {
+		m.note, m.noteOK = check(m.input)
+	}
 }
 
 func (m model) Init() tea.Cmd {
@@ -101,6 +152,11 @@ func (m model) visible(index int) bool {
 func (m *model) load() {
 	q := m.current()
 	m.input = m.answers[q.key]
+	if m.input == "" {
+		m.input = q.initial
+	}
+	m.validate()
+
 	m.cursor = 0
 	if q.browse {
 		m.open(m.startFolder())
@@ -144,7 +200,11 @@ func (m *model) accept() bool {
 	case len(q.options) > 0:
 		m.answers[q.key] = q.options[m.cursor]
 	default:
+		if !m.noteOK {
+			return false
+		}
 		m.answers[q.key] = strings.TrimSpace(m.input)
+
 	}
 
 	if q.key == "confirm" {
@@ -215,12 +275,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.search(trimLast(m.browser.filter))
 			} else if !isChoice {
 				m.input = trimLast(m.input)
+				m.validate()
 			}
 		case tea.KeyRunes, tea.KeySpace:
 			if q.browse {
 				m.search(m.browser.filter + string(msg.Runes))
 			} else if !isChoice {
 				m.input += string(msg.Runes)
+				m.validate()
 			}
 		}
 	case tea.MouseMsg:
@@ -300,6 +362,12 @@ func (m model) View() string {
 		if q.secret {
 			shown = strings.Repeat("•", len([]rune(m.input)))
 		}
+		if m.note != "" && m.noteOK {
+			b.WriteString("\n  " + doneStyle.Render("✔ "+m.note) + "\n")
+		} else if m.note != "" {
+			b.WriteString("\n  " + errorStyle.Render("✘ "+m.note) + "\n")
+		}
+
 		b.WriteString("  " + activeStyle.Render("❯ ") + shown + activeStyle.Render("█") + "\n")
 		b.WriteString("\n  " + dimStyle.Render("Type your answer · Enter to continue · Esc to go back"))
 	}
@@ -307,8 +375,9 @@ func (m model) View() string {
 	return b.String()
 }
 
-func Run() (Answers, bool, error) {
-	program := tea.NewProgram(newModel(), tea.WithAltScreen(), tea.WithMouseAllMotion())
+func Run(options Options) (Answers, bool, error) {
+	program := tea.NewProgram(newModelWith(options), tea.WithAltScreen(), tea.WithMouseAllMotion())
+
 	final, err := program.Run()
 	if err != nil {
 		return Answers{}, false, err
@@ -318,6 +387,8 @@ func Run() (Answers, bool, error) {
 		return Answers{}, false, nil
 	}
 	a := m.answers
+	port, _ := strconv.Atoi(a["port"])
+
 	return Answers{
 		Environment:     a["environment"],
 		Version:         a["version"],
@@ -328,5 +399,8 @@ func Run() (Answers, bool, error) {
 		CustomRepo:      a["customRepo"],
 		CustomBranch:    a["customBranch"],
 		CustomToken:     a["customToken"],
+		Port:            port,
+		InstallDocker:   a["docker"] == optInstall,
+		Start:           a["start"] == optStartNow,
 	}, true, nil
 }
