@@ -8,11 +8,15 @@ const (
 	KindClone  = "clone"
 )
 
+const OdooRepo = "https://github.com/odoo/odoo.git"
+
 type Step struct {
 	Kind     string
 	Action   string
 	Target   string
 	Template string
+	URL      string
+	Branch   string
 }
 
 func folder(parts ...string) Step {
@@ -38,7 +42,7 @@ func BuildPlan(req Request) []Step {
 func developmentSteps(req Request) []Step {
 	base := req.Folder()
 	return []Step{
-		{Kind: KindClone, Action: "clone Odoo " + req.Version, Target: base},
+		{Kind: KindClone, Action: "clone Odoo " + req.Version, Target: base, URL: OdooRepo, Branch: req.Version},
 		folder(base, "enterprise"),
 		folder(base, "custom"),
 		file("development/odoo.conf", base, "odoo.conf"),
