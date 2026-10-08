@@ -5,8 +5,11 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 )
+
+var SupportedVersions = []string{"20.0", "19.0", "18.0", "17.0", "16.0"}
 
 type Request struct {
 	Environment string
@@ -37,6 +40,8 @@ func (r Request) Problems() []string {
 
 	if r.Version == "" {
 		problems = append(problems, "--version is required, for example 19.0")
+	} else if !slices.Contains(SupportedVersions, r.Version) {
+		problems = append(problems, fmt.Sprintf("--version %q is not supported: use one of %s", r.Version, strings.Join(SupportedVersions, ", ")))
 	}
 
 	if strings.ContainsAny(r.Name, `/\`) {

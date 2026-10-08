@@ -32,6 +32,7 @@ func startOdoo(ctx context.Context, req setup.Request, options runOptions) int {
 	}
 
 	url := fmt.Sprintf("http://localhost:%d", req.Port)
+	checklistRoot = ""
 	wait := setup.Step{Action: "wait for Odoo", Target: url}
 	if fancy {
 		fmt.Println()
