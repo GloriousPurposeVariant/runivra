@@ -10,15 +10,16 @@ import (
 func TestStateIsEmptyUntilSaved(t *testing.T) {
 	root := t.TempDir()
 	state, err := LoadState(root)
-	if err != nil || state.Database != "" {
+	if err != nil || state.Database("custom") != "" {
 		t.Fatalf("state = %+v, error = %v; want an empty state and no error", state, err)
 	}
 
-	if err := SaveState(root, State{Database: "shop_dev"}); err != nil {
+	state.SetDatabase("custom", "shop_dev")
+	if err := SaveState(root, state); err != nil {
 		t.Fatalf("SaveState() error = %v", err)
 	}
 	state, err = LoadState(root)
-	if err != nil || state.Database != "shop_dev" {
+	if err != nil || state.Database("custom") != "shop_dev" || state.Database("custom_proj") != "" {
 		t.Fatalf("state = %+v, error = %v; want shop_dev", state, err)
 	}
 

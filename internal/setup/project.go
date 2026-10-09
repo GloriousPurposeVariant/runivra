@@ -23,7 +23,6 @@ func projectConfig(req Request) project.Config {
 		Name:        name,
 		Environment: "development",
 		Odoo:        project.Odoo{Version: req.Version, Edition: edition},
-		Paths:       project.Paths{Config: "odoo.conf", Custom: "custom", Enterprise: "enterprise"},
 		Docker:      project.Docker{ComposeFile: "docker-compose.yml", OdooService: "web", DatabaseService: "db"},
 	}
 }

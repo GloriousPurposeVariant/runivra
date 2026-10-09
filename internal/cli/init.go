@@ -79,6 +79,8 @@ func runInit(args []string) int {
 	}
 
 	config := adopt.Detect(root, composeName, file)
+	detected := config.Paths
+
 	fmt.Println(paint(bold, "Runivra init"), paint(dim, "·"), paint(cyan, root))
 	fmt.Println()
 	printConfig(config)
@@ -101,7 +103,19 @@ func runInit(args []string) int {
 		fmt.Println(paint(red, "runivra init:"), "the Odoo service is required; nothing was saved.")
 		return 1
 	}
+	// Locations are read from the project's files each time. Only a value the
+	// user corrected by hand is kept, as an override.
+	if config.Paths.Config == detected.Config {
+		config.Paths.Config = ""
+	}
+	if config.Paths.Custom == detected.Custom {
+		config.Paths.Custom = ""
+	}
+	if config.Paths.Enterprise == detected.Enterprise {
+		config.Paths.Enterprise = ""
+	}
 	if err := project.Save(root, config); err != nil {
+
 		fmt.Println(paint(red, "runivra init:"), err)
 		return 1
 	}
