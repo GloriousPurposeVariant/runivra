@@ -18,8 +18,7 @@ func runInfo(args []string) int {
 
 	root, err := project.Find(start)
 	if errors.Is(err, project.ErrNotFound) {
-		fmt.Println("No Runivra project was found in", paint(cyan, start), "or any folder above it.")
-		fmt.Println(paint(dim, "Run \"runivra setup\" to create one."))
+		fmt.Println(paint(dim, "Run \"runivra init\" to register a project that already exists, or \"runivra setup\" to create a new one."))
 		return 1
 	}
 	if err != nil {

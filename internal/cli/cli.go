@@ -10,8 +10,8 @@ Usage:
 Commands:
   setup    Create an Odoo project folder (opens a wizard when run without options)
   help     Show this help
+  init     Register an Odoo project that already exists
   info     Show the Runivra project in a folder (default: the current one)
-
 
 Run "runivra setup --help" for the setup options.
 `
@@ -28,6 +28,9 @@ func Run(args []string) int {
 		return 0
 	case "setup":
 		return runSetup(args[1:])
+	case "init":
+		return runInit(args[1:])
+
 	case "info":
 		return runInfo(args[1:])
 	}

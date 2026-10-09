@@ -1,21 +1,12 @@
 package cli
 
 import (
-	"bufio"
 	"context"
 	"fmt"
 	"os"
-	"strings"
 
 	"github.com/GloriousPurposeVariant/runivra/internal/setup"
 )
-
-func askYesNo(question string) bool {
-	fmt.Print(question + " [y/N] ")
-	answer, _ := bufio.NewReader(os.Stdin).ReadString('\n')
-	answer = strings.ToLower(strings.TrimSpace(answer))
-	return answer == "y" || answer == "yes"
-}
 
 func ensureDocker(ctx context.Context, options runOptions) {
 	if setup.DetectDocker(ctx).Ready() {
