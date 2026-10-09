@@ -22,7 +22,7 @@ type Config struct {
 	Name        string `yaml:"name"`
 	Environment string `yaml:"environment"`
 	Odoo        Odoo   `yaml:"odoo"`
-	Paths       Paths  `yaml:"paths"`
+	Paths       Paths  `yaml:"paths,omitempty"`
 	Docker      Docker `yaml:"docker"`
 }
 
@@ -31,10 +31,12 @@ type Odoo struct {
 	Edition string `yaml:"edition"`
 }
 
+// Paths are optional overrides. Runivra normally reads these locations from
+// the compose file and odoo.conf; set one here only when it guesses wrong.
 type Paths struct {
-	Config     string `yaml:"config"`
-	Custom     string `yaml:"custom"`
-	Enterprise string `yaml:"enterprise"`
+	Config     string `yaml:"config,omitempty"`
+	Custom     string `yaml:"custom,omitempty"`
+	Enterprise string `yaml:"enterprise,omitempty"`
 }
 
 type Docker struct {

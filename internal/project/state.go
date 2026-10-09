@@ -13,7 +13,21 @@ const StateName = "state.yml"
 // State holds what Runivra remembers between commands for one person on one
 // computer. Unlike Config it is not meant to be shared.
 type State struct {
-	Database string `yaml:"database"`
+	// Databases maps a set of custom addons folders to the database last
+	// chosen while those folders were in use.
+	Databases map[string]string `yaml:"databases,omitempty"`
+}
+
+// Database returns the database remembered for an addons key, or "".
+func (s State) Database(key string) string {
+	return s.Databases[key]
+}
+
+func (s *State) SetDatabase(key string, name string) {
+	if s.Databases == nil {
+		s.Databases = map[string]string{}
+	}
+	s.Databases[key] = name
 }
 
 func statePath(root string) string {

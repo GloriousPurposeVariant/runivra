@@ -25,7 +25,7 @@ func TestDevelopmentSetupSavesTheProject(t *testing.T) {
 	if config.Name != "shop" || config.Odoo.Version != "20.0" || config.Odoo.Edition != "enterprise" {
 		t.Fatalf("config = %+v", config)
 	}
-	if config.Docker.OdooService != "web" || config.Paths.Custom != "custom" {
+	if config.Docker.OdooService != "web" {
 		t.Fatalf("config = %+v", config)
 	}
 }

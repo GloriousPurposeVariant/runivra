@@ -8,6 +8,7 @@ import (
 
 	"github.com/GloriousPurposeVariant/runivra/internal/database"
 	"github.com/GloriousPurposeVariant/runivra/internal/project"
+	"github.com/GloriousPurposeVariant/runivra/internal/workspace"
 )
 
 const dbUsage = `Work with the databases of a Runivra project.
@@ -90,6 +91,13 @@ func runDB(args []string) int {
 		fmt.Println(paint(red, "runivra db:"), err)
 		return 1
 	}
+	key := ""
+	if view, err := workspace.Load(ctx, root, config); err == nil {
+		key = view.AddonsKey()
+		if action == "" {
+			printProblems(view)
+		}
+	}
 
 	switch action {
 	case "list":
@@ -103,7 +111,7 @@ func runDB(args []string) int {
 			fmt.Println(paint(red, "runivra db use:"), err)
 			return 1
 		}
-		return rememberDatabase(root, state, name)
+		return rememberDatabase(root, state, key, name)
 	}
 
 	if len(names) == 0 {
@@ -115,7 +123,7 @@ func runDB(args []string) int {
 	fmt.Println()
 	for index, name := range names {
 		mark := " "
-		if name == state.Database {
+		if name == state.Database(key) {
 			mark = paint(green, "✔")
 		}
 		fmt.Printf("  %s %s %s\n", mark, paint(dim, fmt.Sprintf("%2d.", index+1)), name)
@@ -125,7 +133,7 @@ func runDB(args []string) int {
 		return 0
 	}
 
-	current := state.Database
+	current := state.Database(key)
 	if current == "" {
 		current = "none"
 	}
@@ -142,11 +150,12 @@ func runDB(args []string) int {
 		fmt.Println(paint(red, "runivra db:"), err)
 		return 1
 	}
-	return rememberDatabase(root, state, name)
+	return rememberDatabase(root, state, key, name)
 }
 
-func rememberDatabase(root string, state project.State, name string) int {
-	state.Database = name
+func rememberDatabase(root string, state project.State, key string, name string) int {
+	state.SetDatabase(key, name)
+
 	if err := project.SaveState(root, state); err != nil {
 		fmt.Println(paint(red, "runivra db:"), err)
 		return 1
