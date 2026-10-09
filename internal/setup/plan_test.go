@@ -17,8 +17,8 @@ func hasTarget(steps []Step, target string) bool {
 func TestBuildPlanForDevelopment(t *testing.T) {
 	base := filepath.Join("projects", "shop")
 	steps := BuildPlan(Request{Environment: "dev", Version: "19.0", Path: base})
-	if len(steps) != 7 {
-		t.Fatalf("got %d steps, want 7: %v", len(steps), steps)
+	if len(steps) != 8 {
+		t.Fatalf("got %d steps, want 8: %v", len(steps), steps)
 	}
 	if steps[0].Action != "clone Odoo 19.0" || steps[0].Target != base {
 		t.Fatalf("first step = %v, want Odoo cloned into the project folder", steps[0])

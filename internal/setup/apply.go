@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"os"
+
+	"github.com/GloriousPurposeVariant/runivra/internal/project"
 )
 
 var ErrNotBuiltYet = errors.New("this kind of step is not built yet")
@@ -23,6 +25,9 @@ func Apply(ctx context.Context, step Step, req Request, report func(Progress)) e
 
 	case KindCopy:
 		return copyFolder(ctx, step.Source, step.Target)
+
+	case KindProject:
+		return project.Save(req.Folder(), projectConfig(req))
 
 	default:
 		return ErrNotBuiltYet

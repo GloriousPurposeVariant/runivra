@@ -3,10 +3,11 @@ package setup
 import "path/filepath"
 
 const (
-	KindFolder = "folder"
-	KindFile   = "file"
-	KindClone  = "clone"
-	KindCopy   = "copy"
+	KindFolder  = "folder"
+	KindFile    = "file"
+	KindClone   = "clone"
+	KindCopy    = "copy"
+	KindProject = "project"
 )
 
 const (
@@ -80,6 +81,7 @@ func developmentSteps(req Request) []Step {
 		file("development/Dockerfile", base, "Dockerfile"),
 		file("development/docker-compose.yml", base, "docker-compose.yml"),
 		file("development/dockerignore", base, ".dockerignore"),
+		{Kind: KindProject, Action: "save project", Target: filepath.Join(base, ".runivra", "config.yml")},
 	}
 }
 
