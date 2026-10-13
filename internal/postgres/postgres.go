@@ -14,6 +14,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"sort"
 	"strings"
@@ -188,8 +189,27 @@ func run(ctx context.Context, args []string, env []string) error {
 
 // CreateRole makes the database user Odoo connects as. Odoo creates its own
 // databases, so the user is allowed to do that and nothing more.
+var roleName = regexp.MustCompile(`^[a-z_][a-z0-9_]{0,62}$`)
+
+// roleSQL builds the statement that creates the user. The name is checked
+// against a strict pattern, and any quote in the password is doubled, which
+// is how SQL writes a quote inside a quoted value.
+func roleSQL(role string, password string) (string, error) {
+	if !roleName.MatchString(role) {
+		return "", fmt.Errorf("%q cannot be used as a database user name; use lowercase letters, digits and underscores, starting with a letter", role)
+	}
+	if password == "" {
+		return "", errors.New("the database user needs a password")
+	}
+	escaped := strings.ReplaceAll(password, "'", "''")
+	return fmt.Sprintf("CREATE ROLE %s LOGIN CREATEDB PASSWORD '%s'", role, escaped), nil
+}
+
 func CreateRole(ctx context.Context, psql string, adminPassword string, role string, password string) error {
-	sql := fmt.Sprintf("CREATE ROLE %s LOGIN CREATEDB PASSWORD '%s'", role, password)
+	sql, err := roleSQL(role, password)
+	if err != nil {
+		return err
+	}
 	args, env := adminCommand(runtime.GOOS, os.Geteuid() == 0, psql, adminPassword, sql)
 	return run(ctx, args, env)
 }

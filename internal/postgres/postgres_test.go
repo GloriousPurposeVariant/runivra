@@ -121,3 +121,18 @@ func TestOnPath(t *testing.T) {
 		t.Fatal("an empty path contains nothing")
 	}
 }
+
+func TestRoleSQL(t *testing.T) {
+	sql, err := roleSQL("odoo", "it's a secret")
+	if err != nil || sql != "CREATE ROLE odoo LOGIN CREATEDB PASSWORD 'it''s a secret'" {
+		t.Fatalf("sql = %q, error = %v; a quote in the password must be doubled", sql, err)
+	}
+	for _, bad := range []string{"", "Odoo", "1odoo", "odoo; DROP ROLE postgres", "my user"} {
+		if _, err := roleSQL(bad, "x"); err == nil {
+			t.Fatalf("user name %q must be refused", bad)
+		}
+	}
+	if _, err := roleSQL("odoo", ""); err == nil {
+		t.Fatal("an empty password must be refused")
+	}
+}
