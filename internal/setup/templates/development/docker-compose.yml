@@ -2,9 +2,14 @@
 services:
   web:
     build: .
+{{- if .HostDatabase}}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+{{- else}}
     depends_on:
       db:
         condition: service_healthy
+{{- end}}
     ports:
       - "{{.Port}}:8069"
     volumes:
@@ -13,7 +18,7 @@ services:
       - ./odoo.conf:/etc/odoo/odoo.conf
       - odoo-data:/var/lib/odoo
     command: ["odoo", "--dev=xml"]
-
+{{- if not .HostDatabase}}
 
   db:
     image: postgres:16
@@ -28,7 +33,10 @@ services:
       interval: 5s
       timeout: 5s
       retries: 20
+{{- end}}
 
 volumes:
   odoo-data:
+{{- if not .HostDatabase}}
   db-data:
+{{- end}}

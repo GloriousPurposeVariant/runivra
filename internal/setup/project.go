@@ -19,10 +19,16 @@ func projectConfig(req Request) project.Config {
 		edition = "enterprise"
 	}
 
+	databaseService := "db"
+	if req.HostDatabase() {
+		databaseService = ""
+	}
+
 	return project.Config{
+
 		Name:        name,
 		Environment: "development",
 		Odoo:        project.Odoo{Version: req.Version, Edition: edition},
-		Docker:      project.Docker{ComposeFile: "docker-compose.yml", OdooService: "web", DatabaseService: "db"},
+		Docker:      project.Docker{ComposeFile: "docker-compose.yml", OdooService: "web", DatabaseService: databaseService},
 	}
 }
