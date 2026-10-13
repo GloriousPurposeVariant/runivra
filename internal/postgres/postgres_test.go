@@ -136,3 +136,15 @@ func TestRoleSQL(t *testing.T) {
 		t.Fatal("an empty password must be refused")
 	}
 }
+
+func TestSuitable(t *testing.T) {
+	if err := suitable("odoo", "t\n"); err != nil {
+		t.Fatalf("a user that may create databases is fine: %v", err)
+	}
+	if err := suitable("odoo", "f\n"); err == nil {
+		t.Fatal("a user that may not create databases must be refused")
+	}
+	if err := suitable("postgres", "t\n"); err == nil {
+		t.Fatal("the postgres administrator must be refused, because Odoo will not run as it")
+	}
+}

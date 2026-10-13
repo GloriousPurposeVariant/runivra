@@ -171,7 +171,9 @@ func adminCommand(system string, root bool, psql string, adminPassword string, s
 	return []string{"sudo", "-u", "postgres", psql, "-v", "ON_ERROR_STOP=1", "-c", sql}, nil
 }
 
-func run(ctx context.Context, args []string, env []string) error {
+// capture runs a command and returns what it printed. On failure the error
+// carries the program's own message.
+func capture(ctx context.Context, args []string, env []string) (string, error) {
 	cmd := exec.CommandContext(ctx, args[0], args[1:]...)
 	cmd.Env = append(os.Environ(), env...)
 	var output bytes.Buffer
@@ -182,9 +184,14 @@ func run(ctx context.Context, args []string, env []string) error {
 		if message == "" {
 			message = err.Error()
 		}
-		return errors.New(message)
+		return "", errors.New(message)
 	}
-	return nil
+	return output.String(), nil
+}
+
+func run(ctx context.Context, args []string, env []string) error {
+	_, err := capture(ctx, args, env)
+	return err
 }
 
 // CreateRole makes the database user Odoo connects as. Odoo creates its own
@@ -214,8 +221,29 @@ func CreateRole(ctx context.Context, psql string, adminPassword string, role str
 	return run(ctx, args, env)
 }
 
-// Check confirms that a user and password can really log in.
+// suitable decides whether a login that works is also one Odoo can use.
+// answer is what PostgreSQL said to "may this user create databases?".
+func suitable(user string, answer string) error {
+	if user == "postgres" {
+		return errors.New("Odoo refuses to run as the postgres administrator; give a separate user that may create databases")
+	}
+	if strings.TrimSpace(answer) != "t" {
+		return fmt.Errorf("user %q is not allowed to create databases, which Odoo needs; as the administrator run: ALTER ROLE %s CREATEDB", user, user)
+	}
+	return nil
+}
+
+// Check confirms that a user and password can log in, and that the user is
+// one Odoo can work with.
 func Check(ctx context.Context, psql string, user string, password string) error {
-	args := []string{psql, "-U", user, "-h", "127.0.0.1", "-p", fmt.Sprint(Port), "-d", "postgres", "-w", "-At", "-c", "SELECT 1"}
-	return run(ctx, args, []string{"PGPASSWORD=" + password})
+	if user == "postgres" {
+		return suitable(user, "")
+	}
+	args := []string{psql, "-U", user, "-h", "127.0.0.1", "-p", fmt.Sprint(Port), "-d", "postgres", "-w", "-At",
+		"-c", "SELECT rolcreatedb OR rolsuper FROM pg_roles WHERE rolname = current_user"}
+	answer, err := capture(ctx, args, []string{"PGPASSWORD=" + password})
+	if err != nil {
+		return err
+	}
+	return suitable(user, answer)
 }
