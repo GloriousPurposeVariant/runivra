@@ -12,6 +12,8 @@ Commands:
   help     Show this help
   init     Register an Odoo project that already exists
   db       List the project's databases and choose one to work on
+  postgres Check or install PostgreSQL on this computer, outside Docker
+
   info     Show the Runivra project in a folder (default: the current one)
 
 Run "runivra setup --help" for the setup options.
@@ -31,8 +33,11 @@ func Run(args []string) int {
 		return runSetup(args[1:])
 	case "init":
 		return runInit(args[1:])
+	case "postgres":
+		return runPostgres(args[1:])
 	case "db":
 		return runDB(args[1:])
+
 	case "info":
 		return runInfo(args[1:])
 	}
