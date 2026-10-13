@@ -221,6 +221,28 @@ func CreateRole(ctx context.Context, psql string, adminPassword string, role str
 	return run(ctx, args, env)
 }
 
+// CheckAdmin confirms that Runivra can act as PostgreSQL's administrator,
+// which is needed once to create a user.
+func CheckAdmin(ctx context.Context, psql string, adminPassword string) error {
+	args, env := adminCommand(runtime.GOOS, os.Geteuid() == 0, psql, adminPassword, "SELECT 1")
+	return run(ctx, args, env)
+}
+
+// RoleExists asks the administrator whether a database user is already there.
+func RoleExists(ctx context.Context, psql string, adminPassword string, role string) (bool, error) {
+	if !roleName.MatchString(role) {
+		return false, fmt.Errorf("%q cannot be used as a database user name; use lowercase letters, digits and underscores, starting with a letter", role)
+	}
+	sql := fmt.Sprintf("SELECT count(*) FROM pg_roles WHERE rolname = '%s'", role)
+	args, env := adminCommand(runtime.GOOS, os.Geteuid() == 0, psql, adminPassword, sql)
+	args = append(args, "-At")
+	answer, err := capture(ctx, args, env)
+	if err != nil {
+		return false, err
+	}
+	return strings.TrimSpace(answer) != "0", nil
+}
+
 // suitable decides whether a login that works is also one Odoo can use.
 // answer is what PostgreSQL said to "may this user create databases?".
 func suitable(user string, answer string) error {

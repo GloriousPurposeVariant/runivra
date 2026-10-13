@@ -20,7 +20,9 @@ func toDatabaseQuestions(options Options) tea.Model {
 
 func TestWizardAsksForAnExistingLogin(t *testing.T) {
 	current := toDatabaseQuestions(Options{PostgresInstalled: true})
+	current = press(current, tea.KeyEnter) // use an existing user
 	m := current.(model)
+
 	if m.current().key != "dbUser" || m.input != "odoo" {
 		t.Fatalf("question = %q, input = %q; want the user question pre-filled with odoo", m.current().key, m.input)
 	}
