@@ -2,6 +2,8 @@ package postgres
 
 import (
 	"net"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -101,5 +103,21 @@ func TestPortOpen(t *testing.T) {
 	listener.Close()
 	if portOpen(port) {
 		t.Fatalf("port %d was closed but is still reported open", port)
+	}
+}
+
+func TestOnPath(t *testing.T) {
+	bin := filepath.Join("pg", "17", "bin")
+	entries := []string{"tools", bin + string(os.PathSeparator), "other"}
+	value := strings.Join(entries, string(os.PathListSeparator))
+
+	if !onPath(value, strings.ToUpper(bin)) {
+		t.Fatal("the folder is on the path, ignoring capitals and the trailing separator")
+	}
+	if onPath(value, filepath.Join("pg", "16", "bin")) {
+		t.Fatal("a different version's folder is not on the path")
+	}
+	if onPath("", "tools") {
+		t.Fatal("an empty path contains nothing")
 	}
 }

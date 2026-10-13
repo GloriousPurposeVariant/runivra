@@ -144,5 +144,16 @@ func installPostgres(ctx context.Context) (databaseLogin, bool) {
 		row("Administrator (postgres)", adminPassword)
 	}
 	fmt.Println(paint(dim, "  Keep these somewhere safe. They are not stored by Runivra and will not be shown again."))
+
+	changed, err := postgres.AddToPath(ctx, status.Psql)
+	switch {
+	case err != nil:
+		fmt.Println(paint(yellow, "  psql could not be added to your PATH: "+err.Error()))
+		fmt.Println(paint(dim, "  You can still run it by its full location: "+status.Psql))
+	case changed:
+		fmt.Println(paint(dim, "  psql was added to your PATH. Open a new terminal, then connect with:"))
+		fmt.Println("    psql -U " + login.User + " -h localhost -d postgres")
+	}
+
 	return login, true
 }
