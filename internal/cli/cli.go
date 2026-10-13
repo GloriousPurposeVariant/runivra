@@ -13,6 +13,7 @@ Commands:
   init     Register an Odoo project that already exists
   db       List the project's databases and choose one to work on
   postgres Check or install PostgreSQL on this computer, outside Docker
+  python   Find or install the Python an Odoo version needs
 
   info     Show the Runivra project in a folder (default: the current one)
 
@@ -33,6 +34,8 @@ func Run(args []string) int {
 		return runSetup(args[1:])
 	case "init":
 		return runInit(args[1:])
+	case "python":
+		return runPython(args[1:])
 	case "postgres":
 		return runPostgres(args[1:])
 	case "db":
