@@ -24,6 +24,15 @@ func projectConfig(req Request) project.Config {
 		databaseService = ""
 	}
 
+	if req.HostOdoo() {
+		return project.Config{
+			Name:        name,
+			Environment: "development",
+			Odoo:        project.Odoo{Version: req.Version, Edition: edition, Runtime: "host"},
+			Paths:       project.Paths{Config: "odoo.conf", Python: ".venv"},
+		}
+	}
+
 	return project.Config{
 
 		Name:        name,

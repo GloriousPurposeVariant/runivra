@@ -29,6 +29,9 @@ type Config struct {
 type Odoo struct {
 	Version string `yaml:"version"`
 	Edition string `yaml:"edition"`
+	// Runtime is "host" when Odoo runs directly on this computer. Empty
+	// means it runs in Docker.
+	Runtime string `yaml:"runtime,omitempty"`
 }
 
 // Paths are optional overrides. Runivra normally reads these locations from
@@ -37,6 +40,8 @@ type Paths struct {
 	Config     string `yaml:"config,omitempty"`
 	Custom     string `yaml:"custom,omitempty"`
 	Enterprise string `yaml:"enterprise,omitempty"`
+	// Python is the environment folder of a project that runs on the host.
+	Python string `yaml:"python,omitempty"`
 }
 
 type Docker struct {

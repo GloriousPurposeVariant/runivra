@@ -3,11 +3,13 @@ package setup
 import "path/filepath"
 
 const (
-	KindFolder  = "folder"
-	KindFile    = "file"
-	KindClone   = "clone"
-	KindCopy    = "copy"
-	KindProject = "project"
+	KindFolder   = "folder"
+	KindFile     = "file"
+	KindClone    = "clone"
+	KindCopy     = "copy"
+	KindProject  = "project"
+	KindVenv     = "venv"
+	KindPackages = "packages"
 )
 
 const (
@@ -71,9 +73,28 @@ func customStep(req Request, target string) Step {
 		URL: req.CustomRepo, Branch: branch, Token: req.CustomToken}
 }
 
-func developmentSteps(req Request) []Step {
+// hostSteps lays out a project that runs without Docker: the Odoo source, a
+// Python environment with Odoo's packages, and an odoo.conf of real paths.
+func hostSteps(req Request) []Step {
 	base := req.Folder()
 	return []Step{
+		{Kind: KindClone, Action: "clone Odoo " + req.Version, Target: base, URL: OdooRepo, Branch: req.Version, Shallow: true},
+		enterpriseStep(req, filepath.Join(base, "enterprise")),
+		customStep(req, filepath.Join(base, "custom")),
+		{Kind: KindVenv, Action: "create Python env", Target: filepath.Join(base, ".venv")},
+		{Kind: KindPackages, Action: "install packages", Target: filepath.Join(base, "requirements.txt")},
+		file("development/odoo-host.conf", base, "odoo.conf"),
+		{Kind: KindProject, Action: "save project", Target: filepath.Join(base, ".runivra", "config.yml")},
+	}
+}
+
+func developmentSteps(req Request) []Step {
+	if req.HostOdoo() {
+		return hostSteps(req)
+	}
+	base := req.Folder()
+	return []Step{
+
 		{Kind: KindClone, Action: "clone Odoo " + req.Version, Target: base, URL: OdooRepo, Branch: req.Version, Shallow: true},
 		enterpriseStep(req, filepath.Join(base, "enterprise")),
 		customStep(req, filepath.Join(base, "custom")),

@@ -20,7 +20,10 @@ func render(name string, req Request) ([]byte, error) {
 	if err := tmpl.Execute(&out, req); err != nil {
 		return nil, err
 	}
-	return out.Bytes(), nil
+	// Generated files are read by Linux tools, in containers and on servers,
+	// so they always get Linux line endings, whatever the template was saved
+	// with.
+	return bytes.ReplaceAll(out.Bytes(), []byte("\r\n"), []byte("\n")), nil
 }
 
 func writeFile(step Step, req Request) error {
