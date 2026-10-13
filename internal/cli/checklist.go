@@ -17,6 +17,7 @@ var (
 	markDone  = paint(green, "✔")
 	markFail  = paint(red, "✘")
 	markLater = paint(yellow, "–")
+	markWarn  = paint(yellow, "!")
 )
 
 var checklistRoot string
@@ -58,6 +59,8 @@ func resultMark(err error) string {
 		return markDone
 	case errors.Is(err, setup.ErrNotBuiltYet):
 		return markLater
+	case errors.As(err, new(*setup.Warning)):
+		return markWarn
 	default:
 		return markFail
 	}

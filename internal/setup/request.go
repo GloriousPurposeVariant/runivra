@@ -31,11 +31,16 @@ type Request struct {
 	DBUser     string
 	DBPassword string
 	DBPort     int
+
+	// PythonPath is the Python to build the environment from. It is only
+	// used by StackHost.
+	PythonPath string
 }
 
 const (
 	StackDocker = "docker"  // Odoo and PostgreSQL both in Docker
 	StackHostDB = "host-db" // Odoo in Docker, PostgreSQL on this computer
+	StackHost   = "host"    // Odoo and PostgreSQL both on this computer, no Docker
 )
 
 // Database is how Odoo reaches PostgreSQL, as written into odoo.conf.
@@ -49,7 +54,26 @@ type Database struct {
 // HostDatabase reports whether PostgreSQL runs on this computer and not in a
 // container.
 func (r Request) HostDatabase() bool {
-	return r.Stack == StackHostDB
+	return r.Stack == StackHostDB || r.Stack == StackHost
+}
+
+// HostOdoo reports whether Odoo itself runs on this computer, without Docker.
+func (r Request) HostOdoo() bool {
+	return r.Stack == StackHost
+}
+
+// HostAddonsPath is addons_path for Odoo running on this computer: real
+// folders, in the order Odoo should search them.
+func (r Request) HostAddonsPath() string {
+	base, err := filepath.Abs(r.Folder())
+	if err != nil {
+		base = r.Folder()
+	}
+	return strings.Join([]string{
+		filepath.Join(base, "custom"),
+		filepath.Join(base, "enterprise"),
+		filepath.Join(base, "addons"),
+	}, ",")
 }
 
 // Database returns the connection settings for the chosen stack. From inside
@@ -62,7 +86,11 @@ func (r Request) Database() Database {
 	if port == 0 {
 		port = 5432
 	}
-	return Database{Host: "host.docker.internal", Port: port, User: r.DBUser, Password: r.DBPassword}
+	host := "host.docker.internal"
+	if r.HostOdoo() {
+		host = "localhost"
+	}
+	return Database{Host: host, Port: port, User: r.DBUser, Password: r.DBPassword}
 }
 
 func (r Request) Problems() []string {
@@ -95,12 +123,13 @@ func (r Request) Problems() []string {
 
 	switch r.Stack {
 	case "", StackDocker:
-	case StackHostDB:
+	case StackHostDB, StackHost:
 		if !r.IsDevelopment() {
-			problems = append(problems, "--stack host-db is only available for development for now")
+			problems = append(problems, fmt.Sprintf("--stack %s is only available for development", r.Stack))
 		}
 	default:
-		problems = append(problems, fmt.Sprintf("--stack %q is not valid: use %s or %s", r.Stack, StackDocker, StackHostDB))
+		problems = append(problems, fmt.Sprintf("--stack %q is not valid: use %s, %s or %s", r.Stack, StackDocker, StackHostDB, StackHost))
+
 	}
 
 	return problems
@@ -144,4 +173,9 @@ func CheckSources(req Request) error {
 		return fmt.Errorf("--enterprise-path %s is not a folder", req.EnterprisePath)
 	}
 	return nil
+}
+
+// EnvironmentFolder is where the Python environment of a host project lives.
+func EnvironmentFolder(req Request) string {
+	return filepath.Join(req.Folder(), ".venv")
 }

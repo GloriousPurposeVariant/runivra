@@ -6,6 +6,7 @@ import (
 	"os"
 
 	"github.com/GloriousPurposeVariant/runivra/internal/project"
+	"github.com/GloriousPurposeVariant/runivra/internal/python"
 )
 
 var ErrNotBuiltYet = errors.New("this kind of step is not built yet")
@@ -15,11 +16,13 @@ func Apply(ctx context.Context, step Step, req Request, report func(Progress)) e
 	switch step.Kind {
 	case KindFolder:
 		return os.MkdirAll(step.Target, 0o755)
+
 	case KindFile:
 		if step.Template == "" {
 			return ErrNotBuiltYet
 		}
 		return writeFile(step, req)
+
 	case KindClone:
 		return clone(ctx, step, report)
 
@@ -28,6 +31,13 @@ func Apply(ctx context.Context, step Step, req Request, report func(Progress)) e
 
 	case KindProject:
 		return project.Save(req.Folder(), projectConfig(req))
+
+	case KindVenv:
+		_, err := python.CreateEnvironment(ctx, req.PythonPath, step.Target)
+		return err
+
+	case KindPackages:
+		return installPackages(ctx, step, req, report)
 
 	default:
 		return ErrNotBuiltYet

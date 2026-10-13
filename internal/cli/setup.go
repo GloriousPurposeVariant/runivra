@@ -19,6 +19,7 @@ import (
 type runOptions struct {
 	installDocker   bool
 	installPostgres bool
+	installPython   bool
 	createDBUser    bool
 	dbAdminPassword string
 	start           bool
@@ -49,6 +50,7 @@ Sources:
 Database:
   --stack STACK             docker (default): PostgreSQL in a container
                             host-db: PostgreSQL installed on this computer
+                            host: Odoo and PostgreSQL on this computer, no Docker
   --db-user NAME            host-db: existing database user for Odoo
   --db-password PASSWORD    host-db: its password (or set RUNIVRA_DB_PASSWORD)
   --install-postgres        host-db: install PostgreSQL without asking when it is missing
@@ -120,6 +122,7 @@ func runSetup(args []string) int {
 	var installDocker bool
 	var start bool
 	var installPostgres bool
+	var installPython bool
 	var createDBUser bool
 	var dbAdminPassword string
 
@@ -137,7 +140,8 @@ func runSetup(args []string) int {
 	flags.BoolVar(&installDocker, "install-docker", false, "install Docker without asking when it is missing")
 	flags.IntVar(&req.Port, "port", 8069, "port on this computer where Odoo will answer")
 	flags.BoolVar(&start, "start", false, "start Odoo after setup without asking")
-	flags.StringVar(&req.Stack, "stack", setup.StackDocker, "docker or host-db")
+	flags.StringVar(&req.Stack, "stack", setup.StackDocker, "docker, host-db or host")
+	flags.BoolVar(&installPython, "install-python", false, "install the needed Python without asking when it is missing")
 	flags.StringVar(&req.DBUser, "db-user", "", "existing database user for Odoo")
 	flags.StringVar(&req.DBPassword, "db-password", os.Getenv("RUNIVRA_DB_PASSWORD"), "password of that user")
 	flags.BoolVar(&installPostgres, "install-postgres", false, "install PostgreSQL without asking when it is missing")
@@ -154,7 +158,7 @@ func runSetup(args []string) int {
 		return 2
 	}
 
-	return runPlan(req, runOptions{installDocker: installDocker, installPostgres: installPostgres,
+	return runPlan(req, runOptions{installDocker: installDocker, installPostgres: installPostgres, installPython: installPython,
 		createDBUser: createDBUser, dbAdminPassword: dbAdminPassword, start: start, ask: true})
 
 }
@@ -225,7 +229,16 @@ func runPlan(req setup.Request, options runOptions) int {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
-	ensureDocker(ctx, options)
+	if req.HostOdoo() {
+		path, ok := ensurePython(ctx, req.Version, options.installPython, options.ask)
+		if !ok {
+			fmt.Println(paint(red, "runivra setup:"), "this stack needs that Python on this computer; nothing was created.")
+			return 1
+		}
+		req.PythonPath = path
+	} else {
+		ensureDocker(ctx, options)
+	}
 
 	if req.HostDatabase() {
 		login, ok := ensurePostgres(ctx, postgresRequest{
@@ -254,7 +267,9 @@ func runPlan(req setup.Request, options runOptions) int {
 	}
 
 	later := 0
+	var warnings []*setup.Warning
 	for index, step := range steps {
+
 		err := runStep(len(steps), index, step, func(report func(setup.Progress)) error {
 			return setup.Apply(ctx, step, req, report)
 		})
@@ -263,7 +278,13 @@ func runPlan(req setup.Request, options runOptions) int {
 			later++
 			continue
 		}
+		var warning *setup.Warning
+		if errors.As(err, &warning) {
+			warnings = append(warnings, warning)
+			continue
+		}
 		if err != nil {
+
 			fmt.Println(paint(red, "runivra setup:"), err)
 			return 1
 		}
@@ -276,9 +297,18 @@ func runPlan(req setup.Request, options runOptions) int {
 		return 0
 	}
 	fmt.Println(paint(green, "Done."))
+	for _, warning := range warnings {
+		fmt.Println()
+		fmt.Println(paint(yellow, "! "+warning.Summary))
+		for _, detail := range warning.Details {
+			fmt.Println(paint(dim, "    "+detail))
+		}
+	}
+	if req.HostOdoo() {
+		return startHostOdoo(ctx, req, options)
+	}
 	if req.IsDevelopment() {
 		return startOdoo(ctx, req, options)
 	}
 	return 0
-
 }
