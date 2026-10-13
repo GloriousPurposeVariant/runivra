@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/GloriousPurposeVariant/runivra/internal/postgres"
+	"github.com/GloriousPurposeVariant/runivra/internal/python"
 	"github.com/GloriousPurposeVariant/runivra/internal/setup"
 	"github.com/GloriousPurposeVariant/runivra/internal/tui"
 )
@@ -77,6 +78,7 @@ func runSetup(args []string) int {
 			CheckLogin:         checkLogin,
 			CheckAdmin:         checkAdmin,
 			RoleExists:         roleExists(),
+			PythonMissing:      pythonMissing,
 			PortIsFree:         setup.PortIsFree,
 			Versions:           setup.SupportedVersions,
 		})
@@ -97,6 +99,9 @@ func runSetup(args []string) int {
 		if answers.HostDatabase {
 			stack = setup.StackHostDB
 		}
+		if answers.HostOdoo {
+			stack = setup.StackHost
+		}
 
 		return runPlan(setup.Request{
 			Environment:     answers.Environment,
@@ -112,7 +117,7 @@ func runSetup(args []string) int {
 			Stack:           stack,
 			DBUser:          answers.DBUser,
 			DBPassword:      answers.DBPassword,
-		}, runOptions{installDocker: answers.InstallDocker, installPostgres: answers.InstallPostgres,
+		}, runOptions{installDocker: answers.InstallDocker, installPostgres: answers.InstallPostgres, installPython: answers.InstallPython,
 			createDBUser: answers.CreateDBUser, dbAdminPassword: answers.DBAdminPassword,
 			start: answers.Start, ask: false})
 
@@ -200,6 +205,16 @@ func roleExists() func(adminPassword string, name string) (bool, error) {
 	return func(adminPassword string, name string) (bool, error) {
 		return postgres.RoleExists(context.Background(), postgres.Detect().Psql, adminPassword, name)
 	}
+}
+
+// pythonMissing tells the wizard whether the Python an Odoo version needs is
+// absent, so it can ask about installing it.
+func pythonMissing(odooVersion string) bool {
+	version, err := python.VersionFor(odooVersion)
+	if err != nil {
+		return false
+	}
+	return python.Find(context.Background(), version) == ""
 }
 
 func runPlan(req setup.Request, options runOptions) int {
