@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/signal"
 
+	"github.com/GloriousPurposeVariant/runivra/internal/postgres"
 	"github.com/GloriousPurposeVariant/runivra/internal/setup"
 	"github.com/GloriousPurposeVariant/runivra/internal/tui"
 )
@@ -61,9 +62,10 @@ func runSetup(args []string) int {
 
 	if len(args) == 0 {
 		answers, ok, err := tui.Run(tui.Options{
-			DockerMissing: !setup.DetectDocker(context.Background()).Ready(),
-			PortIsFree:    setup.PortIsFree,
-			Versions:      setup.SupportedVersions,
+			DockerMissing:     !setup.DetectDocker(context.Background()).Ready(),
+			PostgresInstalled: postgres.Detect().Installed(),
+			PortIsFree:        setup.PortIsFree,
+			Versions:          setup.SupportedVersions,
 		})
 
 		if err != nil {
@@ -78,6 +80,11 @@ func runSetup(args []string) int {
 		if path == "" {
 			path = "."
 		}
+		stack := setup.StackDocker
+		if answers.HostDatabase {
+			stack = setup.StackHostDB
+		}
+
 		return runPlan(setup.Request{
 			Environment:     answers.Environment,
 			Version:         answers.Version,
@@ -89,7 +96,10 @@ func runSetup(args []string) int {
 			CustomBranch:    answers.CustomBranch,
 			CustomToken:     answers.CustomToken,
 			Port:            answers.Port,
-		}, runOptions{installDocker: answers.InstallDocker, start: answers.Start, ask: false})
+			Stack:           stack,
+			DBUser:          answers.DBUser,
+			DBPassword:      answers.DBPassword,
+		}, runOptions{installDocker: answers.InstallDocker, installPostgres: answers.InstallPostgres, start: answers.Start, ask: false})
 
 	}
 

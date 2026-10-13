@@ -19,6 +19,10 @@ const (
 	optNoInstall    = "No, continue without it"
 	optStartNow     = "Yes, start it"
 	optStartLater   = "No, I will start it later"
+	optStackDocker  = "Everything in Docker"
+	optStackHostDB  = "Odoo in Docker, PostgreSQL on this computer"
+	optInstallPG    = "Yes, install PostgreSQL"
+	optNoInstallPG  = "No, cancel this choice"
 )
 
 const tokenHelp = "Typing is hidden. The token stays on this computer: it is not saved to any file and is only handed to Git for this download."
@@ -47,12 +51,17 @@ type Answers struct {
 	Port            int
 	InstallDocker   bool
 	Start           bool
+	HostDatabase    bool
+	InstallPostgres bool
+	DBUser          string
+	DBPassword      string
 }
 
 type Options struct {
-	DockerMissing bool
-	PortIsFree    func(port int) bool
-	Versions      []string
+	DockerMissing     bool
+	PostgresInstalled bool
+	PortIsFree        func(port int) bool
+	Versions          []string
 }
 
 type question struct {
@@ -81,8 +90,25 @@ func portCheck(isFree func(port int) bool) func(input string) (string, bool) {
 	}
 }
 
-func questions(options Options) []question {
+// userCheck refuses names Odoo cannot run as.
+func userCheck(input string) (string, bool) {
+	switch strings.TrimSpace(input) {
+	case "":
+		return "Type a user name.", false
+	case "postgres":
+		return "Odoo refuses to run as postgres. Give another user.", false
+	}
+	return "", true
+}
 
+func requiredCheck(input string) (string, bool) {
+	if strings.TrimSpace(input) == "" {
+		return "A password is needed.", false
+	}
+	return "", true
+}
+
+func questions(options Options) []question {
 	wantsToken := func(a map[string]string) bool { return a["enterprise"] == optToken }
 	wantsCopy := func(a map[string]string) bool { return a["enterprise"] == optCopy }
 	hasRepo := func(a map[string]string) bool { return a["customRepo"] != "" }
@@ -90,6 +116,21 @@ func questions(options Options) []question {
 	noDocker := func(a map[string]string) bool { return options.DockerMissing }
 	willHaveDocker := func(a map[string]string) bool {
 		return isDev(a) && (!options.DockerMissing || a["docker"] == optInstall)
+	}
+
+	hostDB := func(a map[string]string) bool { return isDev(a) && a["stack"] == optStackHostDB }
+	askInstallPG := func(a map[string]string) bool { return hostDB(a) && !options.PostgresInstalled }
+	askLogin := func(a map[string]string) bool {
+		return hostDB(a) && (options.PostgresInstalled || a["postgres"] == optInstallPG)
+	}
+
+	userHelp := "Runivra will create this user in the new PostgreSQL."
+	passwordHelp := "Choose a password, or leave empty to have one generated. Typing is hidden."
+	var passwordCheck func(input string) (string, bool)
+	if options.PostgresInstalled {
+		userHelp = "An existing PostgreSQL user that is allowed to create databases."
+		passwordHelp = "The password of that user. Typing is hidden, and it is only written to this project's odoo.conf."
+		passwordCheck = requiredCheck
 	}
 
 	versions := options.Versions
@@ -100,6 +141,7 @@ func questions(options Options) []question {
 	return []question{
 		{key: "environment", title: "Which environment are you setting up?", options: []string{"development", "staging", "production"}},
 		{key: "version", title: "Which Odoo version?", options: versions},
+		{key: "stack", title: "Where should the database run?", help: "Odoo itself runs in Docker either way.", options: []string{optStackDocker, optStackHostDB}, show: isDev},
 		{key: "path", title: "Where should the project live?", browse: true},
 		{key: "name", title: "Name for a new project folder", help: "Created inside that location. Leave empty to build directly in it; it must then be empty."},
 		{key: "enterprise", title: "Do you need Odoo Enterprise?", options: []string{optNoEnterprise, optToken, optCopy}},
@@ -108,6 +150,9 @@ func questions(options Options) []question {
 		{key: "customRepo", title: "Git repository of your custom addons", help: "Paste the repository address, or leave empty to start with an empty custom folder."},
 		{key: "customBranch", title: "Which branch do you develop on?", help: "Leave empty to use the Odoo version as the branch name.", show: hasRepo},
 		{key: "customToken", title: "Git token for that repository", help: "Leave empty for a public repository. " + tokenHelp, secret: true, show: hasRepo},
+		{key: "postgres", title: "PostgreSQL was not found on this computer. Install it now?", help: "The stack you chose needs PostgreSQL installed here.", options: []string{optInstallPG, optNoInstallPG}, show: askInstallPG},
+		{key: "dbUser", title: "Database user for Odoo", help: userHelp, initial: "odoo", check: userCheck, show: askLogin},
+		{key: "dbPassword", title: "Password for that database user", help: passwordHelp, secret: true, check: passwordCheck, show: askLogin},
 		{key: "port", title: "Which port should Odoo use on this computer?", help: "You will open Odoo at http://localhost:<port>.", initial: "8069", check: portCheck(options.PortIsFree), show: isDev},
 		{key: "docker", title: "Docker was not found. Install it now?", help: "Docker and Docker Compose are needed to run the project.", options: []string{optInstall, optNoInstall}, show: noDocker},
 		{key: "start", title: "Start Odoo when setup finishes?", options: []string{optStartNow, optStartLater}, show: willHaveDocker},
@@ -236,13 +281,22 @@ func (m model) summaryLines() []string {
 	if a["customRepo"] != "" {
 		custom = a["customRepo"]
 	}
+	database := "in Docker"
+	if a["stack"] == optStackHostDB {
+		database = "PostgreSQL on this computer, user " + a["dbUser"]
+		if a["postgres"] == optInstallPG {
+			database += " (PostgreSQL will be installed)"
+		}
+	}
 	return []string{
 		"Environment    " + a["environment"],
 		"Odoo version   " + a["version"],
 		"Folder         " + folder,
 		"Enterprise     " + a["enterprise"],
 		"Custom addons  " + custom,
+		"Database       " + database,
 	}
+
 }
 
 func (m model) optionStart() int {
@@ -465,5 +519,9 @@ func Run(options Options) (Answers, bool, error) {
 		Port:            port,
 		InstallDocker:   a["docker"] == optInstall,
 		Start:           a["start"] == optStartNow,
+		HostDatabase:    a["stack"] == optStackHostDB,
+		InstallPostgres: a["postgres"] == optInstallPG,
+		DBUser:          a["dbUser"],
+		DBPassword:      a["dbPassword"],
 	}, true, nil
 }

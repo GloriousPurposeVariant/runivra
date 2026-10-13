@@ -42,8 +42,8 @@ func TestWizardCommunityPath(t *testing.T) {
 
 func TestWizardHidesTheToken(t *testing.T) {
 	var current tea.Model = newModel()
-	current = press(current, tea.KeyEnter, tea.KeyEnter, tea.KeyEnter, tea.KeyEnter) // dev, 19.0, path, name
-	current = press(current, tea.KeyDown, tea.KeyEnter)                              // Enterprise by token
+	current = press(current, tea.KeyEnter, tea.KeyEnter, tea.KeyEnter, tea.KeyEnter, tea.KeyEnter) // dev, 19.0, stack, path, name
+	current = press(current, tea.KeyDown, tea.KeyEnter)                                            // Enterprise by token
 	current = typeText(current, "secret123")
 
 	m := current.(model)
