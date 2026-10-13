@@ -45,13 +45,18 @@ func openProject(command string) (string, project.Config, bool) {
 
 // listDatabases prints a helpful message and returns false when the list
 // cannot be read.
-func listDatabases(ctx context.Context, root string, config project.Config) ([]string, bool) {
-	names, err := database.List(ctx, root, config)
+func listDatabases(ctx context.Context, view workspace.View) ([]string, bool) {
+	names, err := database.List(ctx, view)
 	if errors.Is(err, database.ErrNotRunning) {
 		fmt.Println(paint(yellow, "The database is not running."))
-		fmt.Println(paint(dim, "Start the project with \"docker compose up -d\" in"), paint(cyan, root))
+		if view.Config.Docker.DatabaseService == "" {
+			fmt.Println(paint(dim, "This project uses PostgreSQL on this computer. Start the PostgreSQL service and try again."))
+		} else {
+			fmt.Println(paint(dim, "Start the project with \"docker compose up -d\" in"), paint(cyan, view.Root))
+		}
 		return nil, false
 	}
+
 	if err != nil {
 		fmt.Println(paint(red, "runivra db:"), err)
 		return nil, false
@@ -82,7 +87,12 @@ func runDB(args []string) int {
 		return 1
 	}
 	ctx := context.Background()
-	names, ok := listDatabases(ctx, root, config)
+	view, err := workspace.Load(ctx, root, config)
+	if err != nil {
+		fmt.Println(paint(red, "runivra db:"), err)
+		return 1
+	}
+	names, ok := listDatabases(ctx, view)
 	if !ok {
 		return 1
 	}
@@ -91,12 +101,9 @@ func runDB(args []string) int {
 		fmt.Println(paint(red, "runivra db:"), err)
 		return 1
 	}
-	key := ""
-	if view, err := workspace.Load(ctx, root, config); err == nil {
-		key = view.AddonsKey()
-		if action == "" {
-			printProblems(view)
-		}
+	key := view.AddonsKey()
+	if action == "" {
+		printProblems(view)
 	}
 
 	switch action {

@@ -100,7 +100,10 @@ func ensurePostgres(ctx context.Context, install bool, ask bool, user string, pa
 		return databaseLogin{}, false
 	}
 	if err := postgres.Check(ctx, status.Psql, user, password); err != nil {
-		fmt.Println(paint(red, "That login did not work:"), err)
+		fmt.Println(paint(red, "That login cannot be used:"), err)
+		fmt.Println(paint(dim, "If Odoo has no database user yet, create one as the PostgreSQL administrator:"))
+		fmt.Println("  CREATE ROLE odoo LOGIN CREATEDB PASSWORD 'choose-a-password';")
+
 		return databaseLogin{}, false
 	}
 	fmt.Println(paint(green, "Login works for user"), paint(cyan, user))
