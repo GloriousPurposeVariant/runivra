@@ -25,6 +25,44 @@ type Request struct {
 	CustomToken  string
 
 	Port int
+
+	// Stack says where the pieces run. Empty means StackDocker.
+	Stack      string
+	DBUser     string
+	DBPassword string
+	DBPort     int
+}
+
+const (
+	StackDocker = "docker"  // Odoo and PostgreSQL both in Docker
+	StackHostDB = "host-db" // Odoo in Docker, PostgreSQL on this computer
+)
+
+// Database is how Odoo reaches PostgreSQL, as written into odoo.conf.
+type Database struct {
+	Host     string
+	Port     int
+	User     string
+	Password string
+}
+
+// HostDatabase reports whether PostgreSQL runs on this computer and not in a
+// container.
+func (r Request) HostDatabase() bool {
+	return r.Stack == StackHostDB
+}
+
+// Database returns the connection settings for the chosen stack. From inside
+// a container, this computer is reached under the name host.docker.internal.
+func (r Request) Database() Database {
+	if !r.HostDatabase() {
+		return Database{Host: "db", Port: 5432, User: "odoo", Password: "odoo"}
+	}
+	port := r.DBPort
+	if port == 0 {
+		port = 5432
+	}
+	return Database{Host: "host.docker.internal", Port: port, User: r.DBUser, Password: r.DBPassword}
 }
 
 func (r Request) Problems() []string {
@@ -53,6 +91,16 @@ func (r Request) Problems() []string {
 	}
 	if r.CustomRepo == "" && (r.CustomBranch != "" || r.CustomToken != "") {
 		problems = append(problems, "--custom-branch and --custom-token need --custom-repo")
+	}
+
+	switch r.Stack {
+	case "", StackDocker:
+	case StackHostDB:
+		if !r.IsDevelopment() {
+			problems = append(problems, "--stack host-db is only available for development for now")
+		}
+	default:
+		problems = append(problems, fmt.Sprintf("--stack %q is not valid: use %s or %s", r.Stack, StackDocker, StackHostDB))
 	}
 
 	return problems

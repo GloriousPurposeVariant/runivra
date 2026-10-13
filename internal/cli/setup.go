@@ -14,9 +14,10 @@ import (
 )
 
 type runOptions struct {
-	installDocker bool
-	start         bool
-	ask           bool
+	installDocker   bool
+	installPostgres bool
+	start           bool
+	ask             bool
 }
 
 const setupUsage = `Create an Odoo project folder.
@@ -39,6 +40,13 @@ Sources:
   --custom-repo URL         clone your custom addons
   --custom-branch BRANCH    branch to clone (default: the Odoo version)
   --custom-token TOKEN      token for a private custom addons repository
+
+Database:
+  --stack STACK             docker (default): PostgreSQL in a container
+                            host-db: PostgreSQL installed on this computer
+  --db-user NAME            host-db: existing database user for Odoo
+  --db-password PASSWORD    host-db: its password (or set RUNIVRA_DB_PASSWORD)
+  --install-postgres        host-db: install PostgreSQL without asking when it is missing
 
 Running:
   --port PORT               port for Odoo on this computer (default: 8069)
@@ -88,6 +96,7 @@ func runSetup(args []string) int {
 	var req setup.Request
 	var installDocker bool
 	var start bool
+	var installPostgres bool
 
 	flags := flag.NewFlagSet("setup", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
@@ -103,6 +112,10 @@ func runSetup(args []string) int {
 	flags.BoolVar(&installDocker, "install-docker", false, "install Docker without asking when it is missing")
 	flags.IntVar(&req.Port, "port", 8069, "port on this computer where Odoo will answer")
 	flags.BoolVar(&start, "start", false, "start Odoo after setup without asking")
+	flags.StringVar(&req.Stack, "stack", setup.StackDocker, "docker or host-db")
+	flags.StringVar(&req.DBUser, "db-user", "", "existing database user for Odoo")
+	flags.StringVar(&req.DBPassword, "db-password", os.Getenv("RUNIVRA_DB_PASSWORD"), "password of that user")
+	flags.BoolVar(&installPostgres, "install-postgres", false, "install PostgreSQL without asking when it is missing")
 
 	if err := flags.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
@@ -114,7 +127,7 @@ func runSetup(args []string) int {
 		return 2
 	}
 
-	return runPlan(req, runOptions{installDocker: installDocker, start: start, ask: true})
+	return runPlan(req, runOptions{installDocker: installDocker, installPostgres: installPostgres, start: start, ask: true})
 
 }
 
@@ -146,6 +159,16 @@ func runPlan(req setup.Request, options runOptions) int {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 	ensureDocker(ctx, options)
+
+	if req.HostDatabase() {
+		login, ok := ensurePostgres(ctx, options.installPostgres, options.ask, req.DBUser, req.DBPassword)
+		if !ok {
+			fmt.Println(paint(red, "runivra setup:"), "this stack needs PostgreSQL on this computer; nothing was created.")
+			return 1
+		}
+		req.DBUser, req.DBPassword, req.DBPort = login.User, login.Password, login.Port
+		fmt.Println()
+	}
 
 	checklistRoot = req.Folder()
 
