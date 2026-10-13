@@ -8,6 +8,8 @@ import (
 	"io"
 	"os"
 	"os/signal"
+	"runtime"
+	"strings"
 
 	"github.com/GloriousPurposeVariant/runivra/internal/postgres"
 	"github.com/GloriousPurposeVariant/runivra/internal/setup"
@@ -17,6 +19,8 @@ import (
 type runOptions struct {
 	installDocker   bool
 	installPostgres bool
+	createDBUser    bool
+	dbAdminPassword string
 	start           bool
 	ask             bool
 }
@@ -48,6 +52,9 @@ Database:
   --db-user NAME            host-db: existing database user for Odoo
   --db-password PASSWORD    host-db: its password (or set RUNIVRA_DB_PASSWORD)
   --install-postgres        host-db: install PostgreSQL without asking when it is missing
+  --db-create               host-db: create the database user in an existing PostgreSQL
+  --db-admin-password PW    Windows, with --db-create: the postgres administrator's
+                            password (or set RUNIVRA_DB_ADMIN_PASSWORD)
 
 Running:
   --port PORT               port for Odoo on this computer (default: 8069)
@@ -62,10 +69,14 @@ func runSetup(args []string) int {
 
 	if len(args) == 0 {
 		answers, ok, err := tui.Run(tui.Options{
-			DockerMissing:     !setup.DetectDocker(context.Background()).Ready(),
-			PostgresInstalled: postgres.Detect().Installed(),
-			PortIsFree:        setup.PortIsFree,
-			Versions:          setup.SupportedVersions,
+			DockerMissing:      !setup.DetectDocker(context.Background()).Ready(),
+			PostgresInstalled:  postgres.Detect().Installed(),
+			NeedsAdminPassword: runtime.GOOS == "windows",
+			CheckLogin:         checkLogin,
+			CheckAdmin:         checkAdmin,
+			RoleExists:         roleExists(),
+			PortIsFree:         setup.PortIsFree,
+			Versions:           setup.SupportedVersions,
 		})
 
 		if err != nil {
@@ -99,7 +110,9 @@ func runSetup(args []string) int {
 			Stack:           stack,
 			DBUser:          answers.DBUser,
 			DBPassword:      answers.DBPassword,
-		}, runOptions{installDocker: answers.InstallDocker, installPostgres: answers.InstallPostgres, start: answers.Start, ask: false})
+		}, runOptions{installDocker: answers.InstallDocker, installPostgres: answers.InstallPostgres,
+			createDBUser: answers.CreateDBUser, dbAdminPassword: answers.DBAdminPassword,
+			start: answers.Start, ask: false})
 
 	}
 
@@ -107,6 +120,8 @@ func runSetup(args []string) int {
 	var installDocker bool
 	var start bool
 	var installPostgres bool
+	var createDBUser bool
+	var dbAdminPassword string
 
 	flags := flag.NewFlagSet("setup", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
@@ -126,6 +141,8 @@ func runSetup(args []string) int {
 	flags.StringVar(&req.DBUser, "db-user", "", "existing database user for Odoo")
 	flags.StringVar(&req.DBPassword, "db-password", os.Getenv("RUNIVRA_DB_PASSWORD"), "password of that user")
 	flags.BoolVar(&installPostgres, "install-postgres", false, "install PostgreSQL without asking when it is missing")
+	flags.BoolVar(&createDBUser, "db-create", false, "create the database user in an existing PostgreSQL")
+	flags.StringVar(&dbAdminPassword, "db-admin-password", os.Getenv("RUNIVRA_DB_ADMIN_PASSWORD"), "postgres administrator password")
 
 	if err := flags.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
@@ -137,8 +154,48 @@ func runSetup(args []string) int {
 		return 2
 	}
 
-	return runPlan(req, runOptions{installDocker: installDocker, installPostgres: installPostgres, start: start, ask: true})
+	return runPlan(req, runOptions{installDocker: installDocker, installPostgres: installPostgres,
+		createDBUser: createDBUser, dbAdminPassword: dbAdminPassword, start: start, ask: true})
 
+}
+
+// plainLoginError turns psql's long message into one line for the wizard.
+func plainLoginError(err error, who string) error {
+	if err == nil {
+		return nil
+	}
+	if strings.Contains(err.Error(), "password authentication failed") {
+		return errors.New("That password is not right for " + who + ".")
+	}
+	if strings.Contains(err.Error(), "Connection refused") {
+		return errors.New("PostgreSQL is not running on this computer.")
+	}
+	lines := strings.Split(strings.TrimSpace(err.Error()), "\n")
+	return errors.New(lines[len(lines)-1])
+}
+
+// checkLogin and checkAdmin let the wizard test a login while the user is
+// still on the question, instead of failing after the wizard has closed.
+func checkLogin(user string, password string) error {
+	err := postgres.Check(context.Background(), postgres.Detect().Psql, user, password)
+	return plainLoginError(err, "user "+user)
+}
+
+func checkAdmin(password string) error {
+	err := postgres.CheckAdmin(context.Background(), postgres.Detect().Psql, password)
+	return plainLoginError(err, "the postgres administrator")
+}
+
+// roleExists returns the check the wizard uses to see whether a database user
+// name is taken. It returns nil on Linux, where asking the administrator
+// would stop to prompt for the sudo password behind the wizard's screen.
+func roleExists() func(adminPassword string, name string) (bool, error) {
+	if runtime.GOOS == "linux" {
+		return nil
+	}
+	return func(adminPassword string, name string) (bool, error) {
+		return postgres.RoleExists(context.Background(), postgres.Detect().Psql, adminPassword, name)
+	}
 }
 
 func runPlan(req setup.Request, options runOptions) int {
@@ -171,7 +228,11 @@ func runPlan(req setup.Request, options runOptions) int {
 	ensureDocker(ctx, options)
 
 	if req.HostDatabase() {
-		login, ok := ensurePostgres(ctx, options.installPostgres, options.ask, req.DBUser, req.DBPassword)
+		login, ok := ensurePostgres(ctx, postgresRequest{
+			install: options.installPostgres, ask: options.ask,
+			user: req.DBUser, password: req.DBPassword,
+			create: options.createDBUser, adminPassword: options.dbAdminPassword,
+		})
 		if !ok {
 			fmt.Println(paint(red, "runivra setup:"), "this stack needs PostgreSQL on this computer; nothing was created.")
 			return 1

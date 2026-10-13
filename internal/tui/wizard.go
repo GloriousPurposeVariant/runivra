@@ -23,6 +23,8 @@ const (
 	optStackHostDB  = "Odoo in Docker, PostgreSQL on this computer"
 	optInstallPG    = "Yes, install PostgreSQL"
 	optNoInstallPG  = "No, cancel this choice"
+	optExistingUser = "Use a database user that already exists"
+	optCreateUser   = "Create a new database user"
 )
 
 const tokenHelp = "Typing is hidden. The token stays on this computer: it is not saved to any file and is only handed to Git for this download."
@@ -55,13 +57,26 @@ type Answers struct {
 	InstallPostgres bool
 	DBUser          string
 	DBPassword      string
+	CreateDBUser    bool
+	DBAdminPassword string
 }
 
 type Options struct {
 	DockerMissing     bool
 	PostgresInstalled bool
-	PortIsFree        func(port int) bool
-	Versions          []string
+
+	// NeedsAdminPassword is true where creating a database user takes the
+	// postgres administrator's password, which is the case on Windows.
+	NeedsAdminPassword bool
+	// CheckLogin and CheckAdmin test a login while the user is still on the
+	// question. Either may be nil, which skips the test.
+	CheckLogin func(user string, password string) error
+	CheckAdmin func(password string) error
+	// RoleExists reports whether a database user name is already taken. It
+	// may be nil where that cannot be found out without prompting.
+	RoleExists func(adminPassword string, name string) (bool, error)
+	PortIsFree func(port int) bool
+	Versions   []string
 }
 
 type question struct {
@@ -75,6 +90,9 @@ type question struct {
 	browse  bool
 	initial string
 	check   func(input string) (string, bool)
+	// verify runs when the answer is accepted and can look at earlier
+	// answers. Unlike check it may be slow, so it does not run per keystroke.
+	verify func(answers map[string]string) (string, bool)
 }
 
 func portCheck(isFree func(port int) bool) func(input string) (string, bool) {
@@ -120,19 +138,46 @@ func questions(options Options) []question {
 
 	hostDB := func(a map[string]string) bool { return isDev(a) && a["stack"] == optStackHostDB }
 	askInstallPG := func(a map[string]string) bool { return hostDB(a) && !options.PostgresInstalled }
-	askLogin := func(a map[string]string) bool {
-		return hostDB(a) && (options.PostgresInstalled || a["postgres"] == optInstallPG)
+	askMode := func(a map[string]string) bool { return hostDB(a) && options.PostgresInstalled }
+	existingUser := func(a map[string]string) bool { return askMode(a) && a["dbMode"] != optCreateUser }
+	newUser := func(a map[string]string) bool {
+		return hostDB(a) && (a["postgres"] == optInstallPG || (askMode(a) && a["dbMode"] == optCreateUser))
+	}
+	askAdmin := func(a map[string]string) bool {
+		return askMode(a) && a["dbMode"] == optCreateUser && options.NeedsAdminPassword
 	}
 
-	userHelp := "Runivra will create this user in the new PostgreSQL."
-	passwordHelp := "Choose a password, or leave empty to have one generated. Typing is hidden."
-	var passwordCheck func(input string) (string, bool)
-	if options.PostgresInstalled {
-		userHelp = "An existing PostgreSQL user that is allowed to create databases."
-		passwordHelp = "The password of that user. Typing is hidden, and it is only written to this project's odoo.conf."
-		passwordCheck = requiredCheck
+	verifyLogin := func(a map[string]string) (string, bool) {
+		if options.CheckLogin == nil {
+			return "", true
+		}
+		if err := options.CheckLogin(a["dbUser"], a["dbPassword"]); err != nil {
+			return err.Error(), false
+		}
+		return "", true
 	}
-
+	verifyNewUser := func(a map[string]string) (string, bool) {
+		if options.RoleExists == nil {
+			return "", true
+		}
+		exists, err := options.RoleExists(a["dbAdmin"], a["dbUser"])
+		if err != nil {
+			return err.Error(), false
+		}
+		if exists {
+			return "A database user named " + a["dbUser"] + " already exists. Choose another name, or go back and use the existing user.", false
+		}
+		return "", true
+	}
+	verifyAdmin := func(a map[string]string) (string, bool) {
+		if options.CheckAdmin == nil {
+			return "", true
+		}
+		if err := options.CheckAdmin(a["dbAdmin"]); err != nil {
+			return err.Error(), false
+		}
+		return "", true
+	}
 	versions := options.Versions
 	if len(versions) == 0 {
 		versions = []string{"20.0", "19.0", "18.0", "17.0", "16.0"}
@@ -151,8 +196,12 @@ func questions(options Options) []question {
 		{key: "customBranch", title: "Which branch do you develop on?", help: "Leave empty to use the Odoo version as the branch name.", show: hasRepo},
 		{key: "customToken", title: "Git token for that repository", help: "Leave empty for a public repository. " + tokenHelp, secret: true, show: hasRepo},
 		{key: "postgres", title: "PostgreSQL was not found on this computer. Install it now?", help: "The stack you chose needs PostgreSQL installed here.", options: []string{optInstallPG, optNoInstallPG}, show: askInstallPG},
-		{key: "dbUser", title: "Database user for Odoo", help: userHelp, initial: "odoo", check: userCheck, show: askLogin},
-		{key: "dbPassword", title: "Password for that database user", help: passwordHelp, secret: true, check: passwordCheck, show: askLogin},
+		{key: "dbMode", title: "Which database user should Odoo use?", help: "PostgreSQL is already installed on this computer.", options: []string{optExistingUser, optCreateUser}, show: askMode},
+		{key: "dbUser", title: "Existing database user", help: "A PostgreSQL user that is allowed to create databases.", initial: "odoo", check: userCheck, show: existingUser},
+		{key: "dbPassword", title: "Password of that user", help: "Typing is hidden. It is checked now and only written to this project's odoo.conf.", secret: true, check: requiredCheck, verify: verifyLogin, show: existingUser},
+		{key: "dbAdmin", title: "PostgreSQL administrator password", help: "The password of the postgres user, set when PostgreSQL was installed. Needed once to create the user. Typing is hidden and it is not saved.", secret: true, check: requiredCheck, verify: verifyAdmin, show: askAdmin},
+		{key: "dbUser", title: "Name for the new database user", help: "Runivra will create this user for Odoo.", initial: "odoo", check: userCheck, verify: verifyNewUser, show: newUser},
+		{key: "dbPassword", title: "Password for the new user", help: "Choose a password, or leave empty to have one generated. Typing is hidden.", secret: true, show: newUser},
 		{key: "port", title: "Which port should Odoo use on this computer?", help: "You will open Odoo at http://localhost:<port>.", initial: "8069", check: portCheck(options.PortIsFree), show: isDev},
 		{key: "docker", title: "Docker was not found. Install it now?", help: "Docker and Docker Compose are needed to run the project.", options: []string{optInstall, optNoInstall}, show: noDocker},
 		{key: "start", title: "Start Odoo when setup finishes?", options: []string{optStartNow, optStartLater}, show: willHaveDocker},
@@ -171,6 +220,7 @@ type model struct {
 	note      string
 	noteOK    bool
 	height    int
+	width     int
 	offset    int
 }
 
@@ -257,6 +307,12 @@ func (m *model) accept() bool {
 			return false
 		}
 		m.answers[q.key] = strings.TrimSpace(m.input)
+		if q.verify != nil {
+			if message, ok := q.verify(m.answers); !ok {
+				m.note, m.noteOK = message, false
+				return false
+			}
+		}
 
 	}
 
@@ -287,6 +343,10 @@ func (m model) summaryLines() []string {
 		if a["postgres"] == optInstallPG {
 			database += " (PostgreSQL will be installed)"
 		}
+		if a["dbMode"] == optCreateUser {
+			database += " (will be created)"
+		}
+
 	}
 	return []string{
 		"Environment    " + a["environment"],
@@ -299,11 +359,66 @@ func (m model) summaryLines() []string {
 
 }
 
-func (m model) optionStart() int {
-	if m.current().summary {
-		return firstOptionRow + len(m.summaryLines()) + 1
+// wrap breaks text into lines no wider than width, at spaces where it can.
+// A width of zero or less means "unknown", and the text is left alone.
+func wrap(text string, width int) []string {
+	if width <= 0 || len([]rune(text)) <= width {
+		return []string{text}
 	}
-	return firstOptionRow
+	var lines []string
+	line := ""
+	for _, word := range strings.Fields(text) {
+		for len([]rune(word)) > width {
+			if line != "" {
+				lines = append(lines, line)
+				line = ""
+			}
+			runes := []rune(word)
+			lines = append(lines, string(runes[:width]))
+			word = string(runes[width:])
+		}
+		switch {
+		case line == "":
+			line = word
+		case len([]rune(line))+1+len([]rune(word)) <= width:
+			line += " " + word
+		default:
+			lines = append(lines, line)
+			line = word
+		}
+	}
+	if line != "" {
+		lines = append(lines, line)
+	}
+	return lines
+}
+
+// textWidth is the room for text inside the wizard's left and right margins.
+func (m model) textWidth() int {
+	if m.width == 0 {
+		return 0
+	}
+	return max(m.width-4, 20)
+}
+
+// helpLines is the help text of the current question, wrapped to the window.
+func (m model) helpLines() []string {
+	help := m.current().help
+	if m.current().browse {
+		help = m.browser.dir
+		if help == "" {
+			help = "This computer"
+		}
+	}
+	return wrap(help, m.textWidth())
+}
+
+func (m model) optionStart() int {
+	start := firstOptionRow + len(m.helpLines()) - 1
+	if m.current().summary {
+		start += len(m.summaryLines()) + 1
+	}
+	return start
 }
 
 func (m model) capacity() int {
@@ -349,6 +464,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.height = msg.Height
+		m.width = msg.Width
 	case tea.KeyMsg:
 
 		switch msg.Type {
@@ -429,13 +545,6 @@ func (m model) progress() string {
 func (m model) View() string {
 	q := m.current()
 	options := m.options()
-	help := q.help
-	if q.browse {
-		help = m.browser.dir
-		if help == "" {
-			help = "This computer"
-		}
-	}
 	var b strings.Builder
 
 	b.WriteString("\n")
@@ -443,7 +552,9 @@ func (m model) View() string {
 	b.WriteString("  " + m.progress() + "\n")
 	b.WriteString("\n")
 	b.WriteString("  " + askStyle.Render(q.title) + "\n")
-	b.WriteString("  " + dimStyle.Render(help) + "\n")
+	for _, line := range m.helpLines() {
+		b.WriteString("  " + dimStyle.Render(line) + "\n")
+	}
 	b.WriteString("\n")
 
 	if q.summary {
@@ -480,9 +591,15 @@ func (m model) View() string {
 			shown = strings.Repeat("•", len([]rune(m.input)))
 		}
 		if m.note != "" && m.noteOK {
-			b.WriteString("\n  " + doneStyle.Render("✔ "+m.note) + "\n")
+			for _, line := range wrap("✔ "+m.note, m.textWidth()) {
+				b.WriteString("\n  " + doneStyle.Render(line))
+			}
+			b.WriteString("\n")
 		} else if m.note != "" {
-			b.WriteString("\n  " + errorStyle.Render("✘ "+m.note) + "\n")
+			for _, line := range wrap("✘ "+m.note, m.textWidth()) {
+				b.WriteString("\n  " + errorStyle.Render(line))
+			}
+			b.WriteString("\n")
 		}
 
 		b.WriteString("  " + activeStyle.Render("❯ ") + shown + activeStyle.Render("█") + "\n")
@@ -523,5 +640,7 @@ func Run(options Options) (Answers, bool, error) {
 		InstallPostgres: a["postgres"] == optInstallPG,
 		DBUser:          a["dbUser"],
 		DBPassword:      a["dbPassword"],
+		CreateDBUser:    a["dbMode"] == optCreateUser,
+		DBAdminPassword: a["dbAdmin"],
 	}, true, nil
 }
