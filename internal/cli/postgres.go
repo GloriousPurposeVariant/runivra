@@ -124,7 +124,7 @@ func ensurePostgres(ctx context.Context, request postgresRequest) (databaseLogin
 	}
 	if err := postgres.Check(ctx, status.Psql, user, password); err != nil {
 		fmt.Println(paint(red, "That login cannot be used:"), err)
-		fmt.Println(paint(dim, "To have Runivra create a new user instead, run this again with --create."))
+		fmt.Println(paint(dim, "To have Runivra create a new user instead, add --create (with runivra setup: --db-create)."))
 		return databaseLogin{}, false
 	}
 	fmt.Println(paint(green, "Login works for user"), paint(cyan, user))
