@@ -76,7 +76,7 @@ func ensurePostgres(ctx context.Context, install bool, ask bool, user string, pa
 			fmt.Println(paint(dim, "Nothing was installed. Run \"runivra postgres --install\" when you are ready."))
 			return databaseLogin{}, false
 		}
-		return installPostgres(ctx)
+		return installPostgres(ctx, user, password)
 	}
 
 	fmt.Println(paint(green, "PostgreSQL is installed:"), paint(cyan, status.Psql))
@@ -107,7 +107,7 @@ func ensurePostgres(ctx context.Context, install bool, ask bool, user string, pa
 	return databaseLogin{User: user, Password: password, Port: postgres.Port}, true
 }
 
-func installPostgres(ctx context.Context) (databaseLogin, bool) {
+func installPostgres(ctx context.Context, user string, password string) (databaseLogin, bool) {
 	adminPassword := postgres.NewPassword()
 	fmt.Println(paint(dim, "Installing PostgreSQL. You may be asked for your password or for permission."))
 	fmt.Println()
@@ -122,7 +122,14 @@ func installPostgres(ctx context.Context) (databaseLogin, bool) {
 		return databaseLogin{}, false
 	}
 
-	login := databaseLogin{User: postgres.Role, Password: postgres.NewPassword(), Port: postgres.Port}
+	login := databaseLogin{User: user, Password: password, Port: postgres.Port}
+	if login.User == "" {
+		login.User = postgres.Role
+	}
+	chosen := login.Password != ""
+	if !chosen {
+		login.Password = postgres.NewPassword()
+	}
 	if err := postgres.CreateRole(ctx, status.Psql, adminPassword, login.User, login.Password); err != nil {
 		fmt.Println(paint(red, "The database user could not be created:"), err)
 		return databaseLogin{}, false
@@ -139,7 +146,12 @@ func installPostgres(ctx context.Context) (databaseLogin, bool) {
 	}
 	row("Port", fmt.Sprint(login.Port))
 	row("Database user for Odoo", login.User)
-	row("Its password", login.Password)
+	if chosen {
+		row("Its password", paint(dim, "the one you gave"))
+	} else {
+		row("Its password", login.Password)
+	}
+
 	if runtime.GOOS == "windows" {
 		row("Administrator (postgres)", adminPassword)
 	}
