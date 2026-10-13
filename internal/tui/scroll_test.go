@@ -19,7 +19,7 @@ func TestLongListsScrollToKeepTheSelectionVisible(t *testing.T) {
 	}
 
 	m := newModel()
-	m.index = 2
+	m.index = 3
 	m.open(root)
 	m.browser.limit = 30
 

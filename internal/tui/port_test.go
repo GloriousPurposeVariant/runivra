@@ -10,8 +10,8 @@ import (
 func TestWizardChecksThePortWhileTyping(t *testing.T) {
 	busy := func(port int) bool { return port != 8069 }
 	var current tea.Model = newModelWith(Options{DockerMissing: true, PortIsFree: busy})
-	current = press(current, tea.KeyEnter, tea.KeyEnter, tea.KeyEnter, tea.KeyEnter) // dev, version, folder, name
-	current = press(current, tea.KeyEnter, tea.KeyEnter)                             // no Enterprise, no custom repository
+	current = press(current, tea.KeyEnter, tea.KeyEnter, tea.KeyEnter, tea.KeyEnter, tea.KeyEnter) // dev, version, stack, folder, name
+	current = press(current, tea.KeyEnter, tea.KeyEnter)                                           // no Enterprise, no custom repository
 
 	m := current.(model)
 	if m.current().key != "port" || m.input != "8069" {
@@ -47,7 +47,7 @@ func TestWizardChecksThePortWhileTyping(t *testing.T) {
 
 func TestWizardAsksToStartWhenDockerIsPresent(t *testing.T) {
 	var current tea.Model = newModelWith(Options{})
-	current = press(current, tea.KeyEnter, tea.KeyEnter, tea.KeyEnter, tea.KeyEnter)
+	current = press(current, tea.KeyEnter, tea.KeyEnter, tea.KeyEnter, tea.KeyEnter, tea.KeyEnter)
 	current = press(current, tea.KeyEnter, tea.KeyEnter)
 	current = press(current, tea.KeyEnter) // port 8069
 
