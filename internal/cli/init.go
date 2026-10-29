@@ -20,6 +20,7 @@ Usage:
   runivra init [options] [folder]
 
 In a folder that already holds an Odoo project, init reads the compose file,
+or for Odoo installed from source without Docker, odoo-bin and odoo.conf. It
 shows what it found and saves it to .runivra/config.yml. Nothing else in the
 project is changed. In an empty folder it starts a new project instead.
 
@@ -60,25 +61,28 @@ func runInit(args []string) int {
 		return 0
 	}
 
+	var config project.Config
 	composeName := adopt.FindComposeFile(root)
-	if composeName == "" {
-		if setup.CheckFolder(root) == nil {
-			fmt.Println(paint(dim, "This folder is empty, so there is nothing to register. Starting a new project."))
-			return runSetup(nil)
+	switch {
+	case composeName != "":
+		file, err := compose.Load(context.Background(), filepath.Join(root, composeName))
+		if err != nil {
+			fmt.Println(paint(red, "runivra init:"), err)
+			fmt.Println(paint(dim, "Docker must be installed and the compose file must be valid."))
+			return 1
 		}
-		fmt.Println(paint(red, "runivra init:"), "no compose file was found in", root)
-		fmt.Println(paint(dim, "init registers projects that run with Docker Compose. For a new project, run \"runivra setup\"."))
+		config = adopt.Detect(root, composeName, file)
+	case adopt.IsOdooSource(root):
+		config = adopt.DetectHost(root)
+	case setup.CheckFolder(root) == nil:
+		fmt.Println(paint(dim, "This folder is empty, so there is nothing to register. Starting a new project."))
+		return runSetup(nil)
+	default:
+		fmt.Println(paint(red, "runivra init:"), "no compose file and no odoo-bin were found in", root)
+		fmt.Println(paint(dim, "Run init in the folder that holds docker-compose.yml or the Odoo source. For a new project, run \"runivra setup\"."))
 		return 1
 	}
-
-	file, err := compose.Load(context.Background(), filepath.Join(root, composeName))
-	if err != nil {
-		fmt.Println(paint(red, "runivra init:"), err)
-		fmt.Println(paint(dim, "Docker must be installed and the compose file must be valid."))
-		return 1
-	}
-
-	config := adopt.Detect(root, composeName, file)
+	host := config.Odoo.Runtime == "host"
 	detected := config.Paths
 
 	fmt.Println(paint(bold, "Runivra init"), paint(dim, "·"), paint(cyan, root))
@@ -99,13 +103,18 @@ func runInit(args []string) int {
 		}
 	}
 
-	if config.Docker.OdooService == "" {
+	if !host && config.Docker.OdooService == "" {
 		fmt.Println(paint(red, "runivra init:"), "the Odoo service is required; nothing was saved.")
 		return 1
 	}
+	if host && config.Paths.Config == "" {
+		fmt.Println(paint(red, "runivra init:"), "the Odoo config file is required; nothing was saved.")
+		return 1
+	}
 	// Locations are read from the project's files each time. Only a value the
-	// user corrected by hand is kept, as an override.
-	if config.Paths.Config == detected.Config {
+	// user corrected by hand is kept, as an override. Without a compose file
+	// nothing else points to odoo.conf, so a host project always keeps it.
+	if !host && config.Paths.Config == detected.Config {
 		config.Paths.Config = ""
 	}
 	if config.Paths.Custom == detected.Custom {
@@ -138,9 +147,14 @@ func printConfig(config project.Config) {
 	row("Environment", config.Environment)
 	row("Odoo version", config.Odoo.Version)
 	row("Edition", config.Odoo.Edition)
-	row("Compose file", config.Docker.ComposeFile)
-	row("Odoo service", config.Docker.OdooService)
-	row("Database service", config.Docker.DatabaseService)
+	if config.Odoo.Runtime == "host" {
+		row("Runs on", "this computer, without Docker")
+		row("Python environment", config.Paths.Python)
+	} else {
+		row("Compose file", config.Docker.ComposeFile)
+		row("Odoo service", config.Docker.OdooService)
+		row("Database service", config.Docker.DatabaseService)
+	}
 	row("Odoo config", config.Paths.Config)
 	row("Custom addons", config.Paths.Custom)
 	row("Enterprise", config.Paths.Enterprise)
@@ -151,8 +165,12 @@ func editConfig(config project.Config) project.Config {
 	config.Environment = askText("Environment", config.Environment)
 	config.Odoo.Version = askText("Odoo version", config.Odoo.Version)
 	config.Odoo.Edition = askText("Edition", config.Odoo.Edition)
-	config.Docker.OdooService = askText("Odoo service", config.Docker.OdooService)
-	config.Docker.DatabaseService = askText("Database service", config.Docker.DatabaseService)
+	if config.Odoo.Runtime == "host" {
+		config.Paths.Python = askText("Python environment", config.Paths.Python)
+	} else {
+		config.Docker.OdooService = askText("Odoo service", config.Docker.OdooService)
+		config.Docker.DatabaseService = askText("Database service", config.Docker.DatabaseService)
+	}
 	config.Paths.Config = askText("Odoo config", config.Paths.Config)
 	config.Paths.Custom = askText("Custom addons", config.Paths.Custom)
 	config.Paths.Enterprise = askText("Enterprise", config.Paths.Enterprise)
