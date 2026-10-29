@@ -23,7 +23,7 @@ on a real machine, not only that the tests pass.
 - [x] Wizard: third stack option and the Python question
 - [x] `info` and `db` for projects that run on the host
 - [x] `init` for a hand-installed Odoo (no compose file)
-- [ ] Database on another port, or on another server
+- [ ] Database on another port, another server, or a managed service (AWS RDS, Azure)
 - [ ] Live output window under the running step
 - [ ] One-click fix when the Dockerfile misses a requirements file
 - [ ] Linux: PostgreSQL access rules for Docker to reach the host database
@@ -39,6 +39,12 @@ on a real machine, not only that the tests pass.
 | Install PostgreSQL | [x] | [ ] | [ ] |
 | Install Python | [ ] | [ ] | [ ] |
 | Odoo 16.0 and 18.0 | [ ] | [ ] | [ ] |
+
+### Checked by CI on every pull request
+
+| | Windows | Linux | macOS |
+|---|---|---|---|
+| Unit tests and build | [x] | [x] | [x] |
 
 ## 2. Working on a project
 
