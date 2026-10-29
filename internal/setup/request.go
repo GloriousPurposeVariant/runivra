@@ -26,11 +26,16 @@ type Request struct {
 
 	Port int
 
-	// Stack says where the pieces run. Empty means StackDocker.
-	Stack      string
+	// Stack says where Odoo runs. Empty means StackDocker.
+	Stack string
+	// DB says where PostgreSQL is. Empty means the stack's usual place: in
+	// Docker for StackDocker, on this computer for the other two.
+	DB         string
+	DBHost     string // DBRemote only
+	DBPort     int
 	DBUser     string
 	DBPassword string
-	DBPort     int
+	DBSSLMode  string // DBRemote only; empty leaves Odoo's default
 
 	// PythonPath is the Python to build the environment from. It is only
 	// used by StackHost.
@@ -43,18 +48,44 @@ const (
 	StackHost   = "host"    // Odoo and PostgreSQL both on this computer, no Docker
 )
 
+const (
+	DBDocker = "docker" // a container in the project's compose file
+	DBLocal  = "local"  // installed on this computer
+	DBRemote = "remote" // another server: your own, on-premise, or a service such as AWS RDS or Azure
+)
+
+// SSLModes are the values PostgreSQL accepts for sslmode.
+var SSLModes = []string{"disable", "allow", "prefer", "require", "verify-ca", "verify-full"}
+
 // Database is how Odoo reaches PostgreSQL, as written into odoo.conf.
 type Database struct {
 	Host     string
 	Port     int
 	User     string
 	Password string
+	SSLMode  string
+}
+
+// DatabasePlace says where PostgreSQL is: DBDocker, DBLocal or DBRemote.
+func (r Request) DatabasePlace() string {
+	if r.DB != "" {
+		return r.DB
+	}
+	if r.Stack == StackHostDB || r.Stack == StackHost {
+		return DBLocal
+	}
+	return DBDocker
 }
 
 // HostDatabase reports whether PostgreSQL runs on this computer and not in a
 // container.
 func (r Request) HostDatabase() bool {
-	return r.Stack == StackHostDB || r.Stack == StackHost
+	return r.DatabasePlace() == DBLocal
+}
+
+// BundledDatabase reports whether PostgreSQL runs in a container next to Odoo.
+func (r Request) BundledDatabase() bool {
+	return r.DatabasePlace() == DBDocker
 }
 
 // HostOdoo reports whether Odoo itself runs on this computer, without Docker.
@@ -79,12 +110,15 @@ func (r Request) HostAddonsPath() string {
 // Database returns the connection settings for the chosen stack. From inside
 // a container, this computer is reached under the name host.docker.internal.
 func (r Request) Database() Database {
-	if !r.HostDatabase() {
+	if r.BundledDatabase() {
 		return Database{Host: "db", Port: 5432, User: "odoo", Password: "odoo"}
 	}
 	port := r.DBPort
 	if port == 0 {
 		port = 5432
+	}
+	if r.DatabasePlace() == DBRemote {
+		return Database{Host: r.DBHost, Port: port, User: r.DBUser, Password: r.DBPassword, SSLMode: r.DBSSLMode}
 	}
 	host := "host.docker.internal"
 	if r.HostOdoo() {
@@ -129,7 +163,28 @@ func (r Request) Problems() []string {
 		}
 	default:
 		problems = append(problems, fmt.Sprintf("--stack %q is not valid: use %s, %s or %s", r.Stack, StackDocker, StackHostDB, StackHost))
+	}
 
+	switch r.DB {
+	case "", DBLocal, DBRemote:
+	case DBDocker:
+		if r.Stack != "" && r.Stack != StackDocker {
+			problems = append(problems, fmt.Sprintf("--db docker needs --stack docker; with --stack %s Odoo has no compose file to put PostgreSQL in", r.Stack))
+		}
+	default:
+		problems = append(problems, fmt.Sprintf("--db %q is not valid: use %s, %s or %s", r.DB, DBDocker, DBLocal, DBRemote))
+	}
+	if r.DB == DBRemote && r.Stack == StackHostDB {
+		problems = append(problems, "--stack host-db means PostgreSQL on this computer; for a remote database use --stack docker --db remote")
+	}
+	if r.DB == DBRemote && r.DBHost == "" {
+		problems = append(problems, "--db remote needs --db-host, the address of the database server")
+	}
+	if r.DB != DBRemote && (r.DBHost != "" || r.DBSSLMode != "") {
+		problems = append(problems, "--db-host and --db-sslmode need --db remote")
+	}
+	if r.DBSSLMode != "" && !slices.Contains(SSLModes, r.DBSSLMode) {
+		problems = append(problems, fmt.Sprintf("--db-sslmode %q is not valid: use one of %s", r.DBSSLMode, strings.Join(SSLModes, ", ")))
 	}
 
 	return problems

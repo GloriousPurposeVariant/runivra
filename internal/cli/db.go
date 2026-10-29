@@ -50,7 +50,8 @@ func listDatabases(ctx context.Context, view workspace.View) ([]string, bool) {
 	if errors.Is(err, database.ErrNotRunning) {
 		fmt.Println(paint(yellow, "The database is not running."))
 		if view.Config.Docker.DatabaseService == "" {
-			fmt.Println(paint(dim, "This project uses PostgreSQL on this computer. Start the PostgreSQL service and try again."))
+			address := database.ConnectionFor(view).Server.Address()
+			fmt.Println(paint(dim, "Nothing answered at "+address+". Start PostgreSQL there, or check that this computer may connect to it."))
 		} else {
 			fmt.Println(paint(dim, "Start the project with \"docker compose up -d\" in"), paint(cyan, view.Root))
 		}
