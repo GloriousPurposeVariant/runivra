@@ -91,4 +91,3 @@ func TestConnectionDefaults(t *testing.T) {
 		t.Fatalf("server = %+v; want Odoo's own defaults when odoo.conf says nothing", server)
 	}
 }
-
