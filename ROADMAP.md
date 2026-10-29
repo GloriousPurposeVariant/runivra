@@ -44,7 +44,7 @@ on a real machine, not only that the tests pass.
 
 | | Windows | Linux | macOS |
 |---|---|---|---|
-| Unit tests and build | [ ] | [ ] | [ ] |
+| Unit tests and build | [x] | [x] | [x] |
 
 ## 2. Working on a project
 
