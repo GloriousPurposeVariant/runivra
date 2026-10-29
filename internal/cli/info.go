@@ -50,8 +50,12 @@ func runInfo(args []string) int {
 	fmt.Println(paint(bold, config.Name), paint(dim, "·"), config.Environment, paint(dim, "·"), "Odoo", config.Odoo.Version, config.Odoo.Edition)
 	fmt.Println()
 	row("Folder", paint(cyan, root))
-	row("Compose file", config.Docker.ComposeFile)
-	row("Services", config.Docker.OdooService+" (Odoo), "+config.Docker.DatabaseService+" (database)")
+	if config.Odoo.Runtime == "host" {
+		row("Runs", "on this computer, Python environment "+config.Paths.Python)
+	} else {
+		row("Compose file", config.Docker.ComposeFile)
+		row("Services", config.Docker.OdooService+" (Odoo), "+config.Docker.DatabaseService+" (database)")
+	}
 
 	view, err := workspace.Load(context.Background(), root, config)
 	if err != nil {

@@ -3,6 +3,7 @@ package workspace
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/GloriousPurposeVariant/runivra/internal/addons"
@@ -46,5 +47,28 @@ func TestBuildReadsTheProjectLive(t *testing.T) {
 	}
 	if view.AddonsKey() != "custom_proj" {
 		t.Fatalf("AddonsKey() = %q, want custom_proj", view.AddonsKey())
+	}
+}
+
+func TestBuildHostReadsOdooConf(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "custom"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	conf := "[options]\naddons_path = " + filepath.Join(root, "custom") + "," + filepath.Join(root, "addons") + "\nhttp_port = 8169\n"
+	if err := os.WriteFile(filepath.Join(root, "odoo.conf"), []byte(conf), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	config := project.Config{Name: "shop", Odoo: project.Odoo{Runtime: "host"}, Paths: project.Paths{Config: "odoo.conf", Python: ".venv"}}
+
+	view := BuildHost(root, config)
+	if view.Port != 8169 || view.ConfPath != filepath.Join(root, "odoo.conf") {
+		t.Fatalf("port = %d, conf = %q", view.Port, view.ConfPath)
+	}
+	if len(view.Addons) != 2 || view.Addons[0].Kind != addons.KindCustom || view.Addons[1].Kind != addons.KindCore {
+		t.Fatalf("addons = %+v", view.Addons)
+	}
+	if len(view.Problems) != 1 || !strings.Contains(view.Problems[0], ".venv is missing") {
+		t.Fatalf("problems = %q; a missing environment must be reported", view.Problems)
 	}
 }

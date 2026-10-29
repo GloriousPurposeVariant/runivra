@@ -94,3 +94,33 @@ func TestRequirementProblems(t *testing.T) {
 		t.Fatalf("a ready-made image has no Dockerfile to check, got %q", got)
 	}
 }
+
+func TestResolveHost(t *testing.T) {
+	root := t.TempDir()
+	custom := mkdir(t, root, "custom")
+	enterprise := mkdir(t, root, "enterprise")
+	core := mkdir(t, root, "addons")
+	elsewhere := mkdir(t, t.TempDir(), "shared_addons")
+
+	folders := ResolveHost(custom+", enterprise ,"+core+","+elsewhere, root)
+	if len(folders) != 4 {
+		t.Fatalf("got %d folders, want 4: %+v", len(folders), folders)
+	}
+	want := []struct {
+		host string
+		kind string
+	}{
+		{custom, KindCustom},
+		{enterprise, KindEnterprise},
+		{core, KindCore},
+		{elsewhere, KindCustom},
+	}
+	for index, expected := range want {
+		if folders[index].Host != expected.host || folders[index].Kind != expected.kind {
+			t.Fatalf("folder %d = %+v, want %s as %s", index, folders[index], expected.host, expected.kind)
+		}
+	}
+	if got := Key(root, folders); !strings.Contains(got, "custom") || strings.Contains(got, "enterprise") {
+		t.Fatalf("Key() = %q; an empty Enterprise folder must not count as custom", got)
+	}
+}
