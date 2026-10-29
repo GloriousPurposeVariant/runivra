@@ -21,8 +21,8 @@ on a real machine, not only that the tests pass.
 ### To do
 
 - [x] Wizard: third stack option and the Python question
-- [ ] `info` and `db` for projects that run on the host
-- [ ] `init` for a hand-installed Odoo (no compose file)
+- [x] `info` and `db` for projects that run on the host
+- [x] `init` for a hand-installed Odoo (no compose file)
 - [ ] Database on another port, or on another server
 - [ ] Live output window under the running step
 - [ ] One-click fix when the Dockerfile misses a requirements file
