@@ -19,9 +19,14 @@ const (
 	optNoInstall    = "No, continue without it"
 	optStartNow     = "Yes, start it"
 	optStartLater   = "No, I will start it later"
-	optStackDocker  = "Everything in Docker"
-	optStackHostDB  = "Odoo in Docker, PostgreSQL on this computer"
-	optStackHost    = "Everything on this computer, no Docker"
+	optStackDocker  = "In Docker"
+	optStackHost    = "On this computer, no Docker"
+	optDBDocker     = "In Docker, next to Odoo"
+	optDBLocal      = "On this computer"
+	optDBRemote     = "On another server or a cloud service (AWS, Azure, ...)"
+	optSSLRequire   = "Yes, require it (AWS, Azure and most cloud services)"
+	optSSLPrefer    = "Use it when the server offers it"
+	optSSLDisable   = "No, never (only on a private network)"
 	optInstallPy    = "Yes, install Python"
 	optNoInstallPy  = "No, cancel this choice"
 	optInstallPG    = "Yes, install PostgreSQL"
@@ -56,14 +61,27 @@ type Answers struct {
 	Port            int
 	InstallDocker   bool
 	Start           bool
-	HostDatabase    bool
 	HostOdoo        bool
+	// DB is where PostgreSQL is: "docker", "local" or "remote", the values
+	// of setup.DBDocker, setup.DBLocal and setup.DBRemote.
+	DB              string
+	DBHost          string
+	DBPort          int
+	DBSSLMode       string
 	InstallPython   bool
 	InstallPostgres bool
 	DBUser          string
 	DBPassword      string
 	CreateDBUser    bool
+	DBAdminUser     string
 	DBAdminPassword string
+}
+
+// Remote is a database server on another computer, as the wizard knows it.
+type Remote struct {
+	Host    string
+	Port    int
+	SSLMode string
 }
 
 type Options struct {
@@ -85,6 +103,12 @@ type Options struct {
 	PythonMissing func(odooVersion string) bool
 	PortIsFree    func(port int) bool
 	Versions      []string
+
+	// CheckRemoteLogin, CheckRemoteAdmin and RemoteRoleExists do the same
+	// for a database on another server. Each may be nil, which skips it.
+	CheckRemoteLogin func(remote Remote, user string, password string) error
+	CheckRemoteAdmin func(remote Remote, user string, password string) error
+	RemoteRoleExists func(remote Remote, adminUser string, adminPassword string, name string) (bool, error)
 }
 
 type question struct {
@@ -134,6 +158,62 @@ func requiredCheck(input string) (string, bool) {
 	return "", true
 }
 
+func hostCheck(input string) (string, bool) {
+	host := strings.TrimSpace(input)
+	if host == "" || strings.ContainsAny(host, " /") {
+		return "Type the server's address, for example db.example.com.", false
+	}
+	return "", true
+}
+
+func serverPortCheck(input string) (string, bool) {
+	port, err := strconv.Atoi(strings.TrimSpace(input))
+	if err != nil || port < 1 || port > 65535 {
+		return "Type a port number between 1 and 65535.", false
+	}
+	return "", true
+}
+
+func nameCheck(input string) (string, bool) {
+	if strings.TrimSpace(input) == "" {
+		return "Type a user name.", false
+	}
+	return "", true
+}
+
+// databasePlace turns the answer to "Where is the database?" into "docker",
+// "local" or "remote". It is "" outside development, where it is not asked.
+func databasePlace(a map[string]string) string {
+	if a["environment"] != "development" {
+		return ""
+	}
+	switch a["database"] {
+	case optDBLocal:
+		return "local"
+	case optDBRemote:
+		return "remote"
+	}
+	return "docker"
+}
+
+// sslMode turns the SSL answer into the value for odoo.conf. Preferring SSL
+// is PostgreSQL's own default, so it is left out.
+func sslMode(answer string) string {
+	switch answer {
+	case optSSLRequire:
+		return "require"
+	case optSSLDisable:
+		return "disable"
+	}
+	return ""
+}
+
+// remoteOf is the server described by the answers so far.
+func remoteOf(a map[string]string) Remote {
+	port, _ := strconv.Atoi(a["dbPort"])
+	return Remote{Host: a["dbHost"], Port: port, SSLMode: sslMode(a["dbSSL"])}
+}
+
 func questions(options Options) []question {
 	wantsToken := func(a map[string]string) bool { return a["enterprise"] == optToken }
 	wantsCopy := func(a map[string]string) bool { return a["enterprise"] == optCopy }
@@ -151,9 +231,11 @@ func questions(options Options) []question {
 		return hostOdoo(a) && options.PythonMissing != nil && options.PythonMissing(a["version"])
 	}
 
-	hostDB := func(a map[string]string) bool {
-		return isDev(a) && (a["stack"] == optStackHostDB || a["stack"] == optStackHost)
-	}
+	dockerOdoo := func(a map[string]string) bool { return isDev(a) && a["stack"] != optStackHost }
+	hostDB := func(a map[string]string) bool { return databasePlace(a) == "local" }
+	remote := func(a map[string]string) bool { return databasePlace(a) == "remote" }
+	remoteExisting := func(a map[string]string) bool { return remote(a) && a["dbMode"] != optCreateUser }
+	remoteNew := func(a map[string]string) bool { return remote(a) && a["dbMode"] == optCreateUser }
 	askInstallPG := func(a map[string]string) bool { return hostDB(a) && !options.PostgresInstalled }
 	askMode := func(a map[string]string) bool { return hostDB(a) && options.PostgresInstalled }
 	existingUser := func(a map[string]string) bool { return askMode(a) && a["dbMode"] != optCreateUser }
@@ -195,6 +277,37 @@ func questions(options Options) []question {
 		}
 		return "", true
 	}
+	verifyRemoteLogin := func(a map[string]string) (string, bool) {
+		if options.CheckRemoteLogin == nil {
+			return "", true
+		}
+		if err := options.CheckRemoteLogin(remoteOf(a), a["dbUser"], a["dbPassword"]); err != nil {
+			return err.Error(), false
+		}
+		return "", true
+	}
+	verifyRemoteAdmin := func(a map[string]string) (string, bool) {
+		if options.CheckRemoteAdmin == nil {
+			return "", true
+		}
+		if err := options.CheckRemoteAdmin(remoteOf(a), a["dbAdminUser"], a["dbAdmin"]); err != nil {
+			return err.Error(), false
+		}
+		return "", true
+	}
+	verifyRemoteNewUser := func(a map[string]string) (string, bool) {
+		if options.RemoteRoleExists == nil {
+			return "", true
+		}
+		exists, err := options.RemoteRoleExists(remoteOf(a), a["dbAdminUser"], a["dbAdmin"], a["dbUser"])
+		if err != nil {
+			return err.Error(), false
+		}
+		if exists {
+			return "A database user named " + a["dbUser"] + " already exists on this server. Choose another name, or go back and use the existing user.", false
+		}
+		return "", true
+	}
 	versions := options.Versions
 	if len(versions) == 0 {
 		versions = []string{"20.0", "19.0", "18.0", "17.0", "16.0"}
@@ -203,7 +316,7 @@ func questions(options Options) []question {
 	return []question{
 		{key: "environment", title: "Which environment are you setting up?", options: []string{"development", "staging", "production"}},
 		{key: "version", title: "Which Odoo version?", options: versions},
-		{key: "stack", title: "How should this project run?", help: "Docker is the simplest. The other two use software installed on this computer.", options: []string{optStackDocker, optStackHostDB, optStackHost}, show: isDev},
+		{key: "stack", title: "Where should Odoo run?", help: "Docker is the simplest. On this computer, Odoo runs from a Python environment in the project.", options: []string{optStackDocker, optStackHost}, show: isDev},
 		{key: "path", title: "Where should the project live?", browse: true},
 		{key: "name", title: "Name for a new project folder", help: "Created inside that location. Leave empty to build directly in it; it must then be empty."},
 		{key: "enterprise", title: "Do you need Odoo Enterprise?", options: []string{optNoEnterprise, optToken, optCopy}},
@@ -212,6 +325,8 @@ func questions(options Options) []question {
 		{key: "customRepo", title: "Git repository of your custom addons", help: "Paste the repository address, or leave empty to start with an empty custom folder."},
 		{key: "customBranch", title: "Which branch do you develop on?", help: "Leave empty to use the Odoo version as the branch name.", show: hasRepo},
 		{key: "customToken", title: "Git token for that repository", help: "Leave empty for a public repository. " + tokenHelp, secret: true, show: hasRepo},
+		{key: "database", title: "Where is the database?", help: "PostgreSQL can run in Docker with Odoo, be installed on this computer, or be a server you already have.", options: []string{optDBDocker, optDBLocal, optDBRemote}, show: dockerOdoo},
+		{key: "database", title: "Where is the database?", help: "PostgreSQL can be installed on this computer, or be a server you already have.", options: []string{optDBLocal, optDBRemote}, show: hostOdoo},
 		{key: "postgres", title: "PostgreSQL was not found on this computer. Install it now?", help: "The stack you chose needs PostgreSQL installed here.", options: []string{optInstallPG, optNoInstallPG}, show: askInstallPG},
 		{key: "dbMode", title: "Which database user should Odoo use?", help: "PostgreSQL is already installed on this computer.", options: []string{optExistingUser, optCreateUser}, show: askMode},
 		{key: "dbUser", title: "Existing database user", help: "A PostgreSQL user that is allowed to create databases.", initial: "odoo", check: userCheck, show: existingUser},
@@ -219,6 +334,16 @@ func questions(options Options) []question {
 		{key: "dbAdmin", title: "PostgreSQL administrator password", help: "The password of the postgres user, set when PostgreSQL was installed. Needed once to create the user. Typing is hidden and it is not saved.", secret: true, check: requiredCheck, verify: verifyAdmin, show: askAdmin},
 		{key: "dbUser", title: "Name for the new database user", help: "Runivra will create this user for Odoo.", initial: "odoo", check: userCheck, verify: verifyNewUser, show: newUser},
 		{key: "dbPassword", title: "Password for the new user", help: "Choose a password, or leave empty to have one generated. Typing is hidden.", secret: true, show: newUser},
+		{key: "dbHost", title: "Address of the database server", help: "For example db.example.com, or the endpoint shown by AWS RDS or Azure.", check: hostCheck, show: remote},
+		{key: "dbPort", title: "Port of the database server", initial: "5432", check: serverPortCheck, show: remote},
+		{key: "dbSSL", title: "Does the server need an encrypted (SSL) connection?", options: []string{optSSLRequire, optSSLPrefer, optSSLDisable}, show: remote},
+		{key: "dbMode", title: "Which database user should Odoo use?", help: "Runivra installs nothing on that server. It can use a user you have, or create one for Odoo.", options: []string{optExistingUser, optCreateUser}, show: remote},
+		{key: "dbUser", title: "Existing database user", help: "A user on that server that is allowed to create databases.", initial: "odoo", check: userCheck, show: remoteExisting},
+		{key: "dbPassword", title: "Password of that user", help: "Typing is hidden. It is checked now and only written to this project's odoo.conf.", secret: true, check: requiredCheck, verify: verifyRemoteLogin, show: remoteExisting},
+		{key: "dbAdminUser", title: "Main user of the server", help: "The user set when the server was created. On AWS RDS and Azure it may create users. It is used once and not saved.", initial: "postgres", check: nameCheck, show: remoteNew},
+		{key: "dbAdmin", title: "Password of the main user", help: "Typing is hidden and it is not saved.", secret: true, check: requiredCheck, verify: verifyRemoteAdmin, show: remoteNew},
+		{key: "dbUser", title: "Name for the new database user", help: "Runivra will create this user for Odoo on that server.", initial: "odoo", check: userCheck, verify: verifyRemoteNewUser, show: remoteNew},
+		{key: "dbPassword", title: "Password for the new user", help: "Choose a password, or leave empty to have one generated. Typing is hidden.", secret: true, show: remoteNew},
 		{key: "python", title: "The Python this Odoo version needs is not installed. Install it now?", help: "Without it Odoo cannot run directly on this computer.", options: []string{optInstallPy, optNoInstallPy}, show: askPython},
 		{key: "port", title: "Which port should Odoo use on this computer?", help: "You will open Odoo at http://localhost:<port>.", initial: "8069", check: portCheck(options.PortIsFree), show: isDev},
 		{key: "docker", title: "Docker was not found. Install it now?", help: "Docker and Docker Compose are needed to run the project.", options: []string{optInstall, optNoInstall}, show: noDocker},
@@ -360,8 +485,8 @@ func (m model) summaryLines() []string {
 		runs = "on this computer, from a Python environment in the project"
 	}
 	database := "in Docker"
-	if a["stack"] == optStackHostDB || a["stack"] == optStackHost {
-
+	switch databasePlace(a) {
+	case "local":
 		database = "PostgreSQL on this computer, user " + a["dbUser"]
 		if a["postgres"] == optInstallPG {
 			database += " (PostgreSQL will be installed)"
@@ -369,7 +494,14 @@ func (m model) summaryLines() []string {
 		if a["dbMode"] == optCreateUser {
 			database += " (will be created)"
 		}
-
+	case "remote":
+		database = a["dbHost"] + ":" + a["dbPort"] + ", user " + a["dbUser"]
+		if a["dbMode"] == optCreateUser {
+			database += " (will be created)"
+		}
+		if mode := sslMode(a["dbSSL"]); mode != "" {
+			database += ", SSL " + mode
+		}
 	}
 	return []string{
 		"Environment    " + a["environment"],
@@ -646,6 +778,10 @@ func Run(options Options) (Answers, bool, error) {
 	}
 	a := m.answers
 	port, _ := strconv.Atoi(a["port"])
+	remote := Remote{}
+	if databasePlace(a) == "remote" {
+		remote = remoteOf(a)
+	}
 
 	return Answers{
 		Environment:     a["environment"],
@@ -660,13 +796,17 @@ func Run(options Options) (Answers, bool, error) {
 		Port:            port,
 		InstallDocker:   a["docker"] == optInstall,
 		Start:           a["start"] == optStartNow,
-		HostDatabase:    a["stack"] == optStackHostDB || a["stack"] == optStackHost,
 		HostOdoo:        a["stack"] == optStackHost,
+		DB:              databasePlace(a),
+		DBHost:          remote.Host,
+		DBPort:          remote.Port,
+		DBSSLMode:       remote.SSLMode,
 		InstallPython:   a["python"] == optInstallPy,
 		InstallPostgres: a["postgres"] == optInstallPG,
 		DBUser:          a["dbUser"],
 		DBPassword:      a["dbPassword"],
 		CreateDBUser:    a["dbMode"] == optCreateUser,
+		DBAdminUser:     a["dbAdminUser"],
 		DBAdminPassword: a["dbAdmin"],
 	}, true, nil
 }

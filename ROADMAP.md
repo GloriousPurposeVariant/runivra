@@ -24,6 +24,7 @@ on a real machine, not only that the tests pass.
 - [x] `info` and `db` for projects that run on the host
 - [x] `init` for a hand-installed Odoo (no compose file)
 - [x] Database on another port, another server, or a managed service (AWS RDS, Azure)
+- [x] Wizard: where the database is, with remote server questions
 - [ ] Live output window under the running step
 - [ ] One-click fix when the Dockerfile misses a requirements file
 - [ ] Linux: PostgreSQL access rules for Docker to reach the host database

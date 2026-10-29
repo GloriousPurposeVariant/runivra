@@ -7,15 +7,22 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
-// toDatabaseQuestions answers everything up to the first database question,
-// choosing the host database stack.
-func toDatabaseQuestions(options Options) tea.Model {
+// toDatabasePlace answers everything up to "Where is the database?", with
+// Odoo in Docker.
+func toDatabasePlace(options Options) tea.Model {
 	var current tea.Model = newModelWith(options)
 	current = press(current, tea.KeyEnter, tea.KeyEnter) // development, version
-	current = press(current, tea.KeyDown, tea.KeyEnter)  // PostgreSQL on this computer
+	current = press(current, tea.KeyEnter)               // Odoo in Docker
 	current = press(current, tea.KeyEnter, tea.KeyEnter) // folder, name
 	current = press(current, tea.KeyEnter, tea.KeyEnter) // no Enterprise, no custom repository
 	return current
+}
+
+// toDatabaseQuestions answers everything up to the first database question,
+// choosing Odoo in Docker and PostgreSQL on this computer.
+func toDatabaseQuestions(options Options) tea.Model {
+	current := toDatabasePlace(options)
+	return press(current, tea.KeyDown, tea.KeyEnter) // on this computer
 }
 
 func TestWizardAsksForAnExistingLogin(t *testing.T) {
@@ -88,10 +95,8 @@ func TestWizardSkipsTheLoginWhenInstallIsDeclined(t *testing.T) {
 }
 
 func TestDockerStackAsksNoDatabaseQuestions(t *testing.T) {
-	var current tea.Model = newModelWith(Options{PostgresInstalled: true})
-	current = press(current, tea.KeyEnter, tea.KeyEnter, tea.KeyEnter) // development, version, everything in Docker
-	current = press(current, tea.KeyEnter, tea.KeyEnter)               // folder, name
-	current = press(current, tea.KeyEnter, tea.KeyEnter)               // no Enterprise, no custom repository
+	current := toDatabasePlace(Options{PostgresInstalled: true})
+	current = press(current, tea.KeyEnter) // in Docker, next to Odoo
 	if got := current.(model).current().key; got != "port" {
 		t.Fatalf("question = %q, want port", got)
 	}
