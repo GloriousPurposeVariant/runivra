@@ -121,7 +121,6 @@ func createRemoteLogin(ctx context.Context, req setup.Request, options runOption
 	return req, true
 }
 
-
 // wizardServer is the server the wizard describes, logged in to as user.
 func wizardServer(remote tui.Remote, user string, password string) postgres.Server {
 	return postgres.Server{Host: remote.Host, Port: remote.Port, User: user, Password: password, SSLMode: remote.SSLMode}
