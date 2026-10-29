@@ -117,7 +117,6 @@ func TestProblemsChecksTheStack(t *testing.T) {
 	}
 }
 
-
 // A managed database such as AWS RDS: no database container, no way into
 // this computer, and the server's own address and SSL mode in odoo.conf.
 func TestRemoteDatabaseLeavesTheContainerOut(t *testing.T) {

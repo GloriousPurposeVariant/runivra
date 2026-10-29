@@ -37,7 +37,6 @@ type Request struct {
 	DBPassword string
 	DBSSLMode  string // DBRemote only; empty leaves Odoo's default
 
-
 	// PythonPath is the Python to build the environment from. It is only
 	// used by StackHost.
 	PythonPath string
@@ -88,7 +87,6 @@ func (r Request) HostDatabase() bool {
 func (r Request) BundledDatabase() bool {
 	return r.DatabasePlace() == DBDocker
 }
-
 
 // HostOdoo reports whether Odoo itself runs on this computer, without Docker.
 func (r Request) HostOdoo() bool {
