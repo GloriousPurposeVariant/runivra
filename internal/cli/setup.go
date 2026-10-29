@@ -22,9 +22,11 @@ type runOptions struct {
 	installPostgres bool
 	installPython   bool
 	createDBUser    bool
+	dbAdminUser     string
 	dbAdminPassword string
-	start           bool
-	ask             bool
+
+	start bool
+	ask   bool
 }
 
 const setupUsage = `Create an Odoo project folder.
@@ -48,16 +50,26 @@ Sources:
   --custom-branch BRANCH    branch to clone (default: the Odoo version)
   --custom-token TOKEN      token for a private custom addons repository
 
-Database:
-  --stack STACK             docker (default): PostgreSQL in a container
-                            host-db: PostgreSQL installed on this computer
+Where it runs:
+  --stack STACK             docker (default): Odoo and PostgreSQL in containers
+                            host-db: Odoo in Docker, PostgreSQL on this computer
                             host: Odoo and PostgreSQL on this computer, no Docker
-  --db-user NAME            host-db: existing database user for Odoo
-  --db-password PASSWORD    host-db: its password (or set RUNIVRA_DB_PASSWORD)
-  --install-postgres        host-db: install PostgreSQL without asking when it is missing
-  --db-create               host-db: create the database user in an existing PostgreSQL
-  --db-admin-password PW    Windows, with --db-create: the postgres administrator's
-                            password (or set RUNIVRA_DB_ADMIN_PASSWORD)
+  --db PLACE                where PostgreSQL is, when not the stack's usual place:
+                            docker, local (this computer) or remote (your own
+                            server, on-premise, or a service such as AWS RDS or Azure)
+
+Database:
+  --db-host HOST            remote: the server's address
+  --db-port PORT            remote: its port (default: 5432)
+  --db-sslmode MODE         remote: disable, prefer, require or verify-full;
+                            managed services usually need require
+  --db-user NAME            existing database user for Odoo
+  --db-password PASSWORD    its password (or set RUNIVRA_DB_PASSWORD)
+  --install-postgres        local: install PostgreSQL without asking when it is missing
+  --db-create               create the database user instead of expecting it
+  --db-admin-user NAME      remote, with --db-create: the server's main user
+  --db-admin-password PW    with --db-create: the administrator's password, needed
+                            on Windows and for remote (or set RUNIVRA_DB_ADMIN_PASSWORD)
 
 Running:
   --port PORT               port for Odoo on this computer (default: 8069)
@@ -129,6 +141,7 @@ func runSetup(args []string) int {
 	var installPostgres bool
 	var installPython bool
 	var createDBUser bool
+	var dbAdminUser string
 	var dbAdminPassword string
 
 	flags := flag.NewFlagSet("setup", flag.ContinueOnError)
@@ -147,6 +160,11 @@ func runSetup(args []string) int {
 	flags.BoolVar(&start, "start", false, "start Odoo after setup without asking")
 	flags.StringVar(&req.Stack, "stack", setup.StackDocker, "docker, host-db or host")
 	flags.BoolVar(&installPython, "install-python", false, "install the needed Python without asking when it is missing")
+	flags.StringVar(&req.DB, "db", "", "docker, local or remote")
+	flags.StringVar(&req.DBHost, "db-host", "", "address of a remote database server")
+	flags.IntVar(&req.DBPort, "db-port", 0, "port of a remote database server")
+	flags.StringVar(&req.DBSSLMode, "db-sslmode", "", "SSL mode for a remote database server")
+	flags.StringVar(&dbAdminUser, "db-admin-user", "", "main user of a remote database server")
 	flags.StringVar(&req.DBUser, "db-user", "", "existing database user for Odoo")
 	flags.StringVar(&req.DBPassword, "db-password", os.Getenv("RUNIVRA_DB_PASSWORD"), "password of that user")
 	flags.BoolVar(&installPostgres, "install-postgres", false, "install PostgreSQL without asking when it is missing")
@@ -164,7 +182,7 @@ func runSetup(args []string) int {
 	}
 
 	return runPlan(req, runOptions{installDocker: installDocker, installPostgres: installPostgres, installPython: installPython,
-		createDBUser: createDBUser, dbAdminPassword: dbAdminPassword, start: start, ask: true})
+		createDBUser: createDBUser, dbAdminUser: dbAdminUser, dbAdminPassword: dbAdminPassword, start: start, ask: true})
 
 }
 
@@ -266,6 +284,15 @@ func runPlan(req setup.Request, options runOptions) int {
 			return 1
 		}
 		req.DBUser, req.DBPassword, req.DBPort = login.User, login.Password, login.Port
+		fmt.Println()
+	}
+	if req.DatabasePlace() == setup.DBRemote {
+		var ok bool
+		req, ok = ensureRemote(ctx, req, options)
+		if !ok {
+			fmt.Println(paint(red, "runivra setup:"), "the database server could not be used; nothing was created.")
+			return 1
+		}
 		fmt.Println()
 	}
 

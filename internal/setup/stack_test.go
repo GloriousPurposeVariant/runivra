@@ -116,3 +116,64 @@ func TestProblemsChecksTheStack(t *testing.T) {
 		t.Fatalf("host-db in development is fine, got %v", got)
 	}
 }
+
+
+// A managed database such as AWS RDS: no database container, no way into
+// this computer, and the server's own address and SSL mode in odoo.conf.
+func TestRemoteDatabaseLeavesTheContainerOut(t *testing.T) {
+	req := Request{Environment: "dev", Version: "20.0", Path: t.TempDir(), Port: 8069,
+		DB: DBRemote, DBHost: "shop.abc123.eu-west-1.rds.amazonaws.com", DBPort: 5432,
+		DBUser: "shop", DBPassword: "s3cret", DBSSLMode: "require"}
+	compose, conf := writeDevelopmentFiles(t, req)
+
+	web := compose.Services["web"]
+	if len(compose.Services) != 1 || len(web.DependsOn) != 0 || len(web.ExtraHosts) != 0 {
+		t.Fatalf("services = %+v; want only web, waiting for nothing", compose.Services)
+	}
+	if len(compose.Volumes) != 1 {
+		t.Fatalf("volumes = %v, want only odoo-data", compose.Volumes)
+	}
+	for _, want := range []string{"db_host = shop.abc123.eu-west-1.rds.amazonaws.com\n", "db_user = shop\n", "db_password = s3cret\ndb_sslmode = require\n"} {
+		if !strings.Contains(conf, want) {
+			t.Fatalf("odoo.conf is missing %q:\n%s", want, conf)
+		}
+	}
+
+	config, err := project.Load(req.Folder())
+	if err != nil || config.Docker.DatabaseService != "" {
+		t.Fatalf("database service = %q, error = %v; want none", config.Docker.DatabaseService, err)
+	}
+}
+
+func TestOdooConfLeavesSSLModeOutUnlessGiven(t *testing.T) {
+	req := Request{Environment: "dev", Version: "20.0", Path: t.TempDir(), Port: 8069}
+	_, conf := writeDevelopmentFiles(t, req)
+	if strings.Contains(conf, "db_sslmode") || !strings.Contains(conf, "db_password = odoo\nworkers") {
+		t.Fatalf("odoo.conf = \n%s", conf)
+	}
+}
+
+func TestProblemsChecksTheDatabasePlace(t *testing.T) {
+	base := Request{Environment: "dev", Version: "20.0"}
+	cases := []struct {
+		name     string
+		change   func(*Request)
+		problems int
+	}{
+		{"remote with a host", func(r *Request) { r.DB, r.DBHost = DBRemote, "db.example.com" }, 0},
+		{"remote on the host stack", func(r *Request) { r.Stack, r.DB, r.DBHost = StackHost, DBRemote, "db.example.com" }, 0},
+		{"remote without a host", func(r *Request) { r.DB = DBRemote }, 1},
+		{"remote with host-db", func(r *Request) { r.Stack, r.DB, r.DBHost = StackHostDB, DBRemote, "db.example.com" }, 1},
+		{"docker on the host stack", func(r *Request) { r.Stack, r.DB = StackHost, DBDocker }, 1},
+		{"a host without remote", func(r *Request) { r.DBHost = "db.example.com" }, 1},
+		{"an unknown place", func(r *Request) { r.DB = "cloud" }, 1},
+		{"an unknown SSL mode", func(r *Request) { r.DB, r.DBHost, r.DBSSLMode = DBRemote, "db.example.com", "always" }, 1},
+	}
+	for _, c := range cases {
+		req := base
+		c.change(&req)
+		if got := req.Problems(); len(got) != c.problems {
+			t.Errorf("%s: problems = %v, want %d", c.name, got, c.problems)
+		}
+	}
+}

@@ -20,7 +20,7 @@ func projectConfig(req Request) project.Config {
 	}
 
 	databaseService := "db"
-	if req.HostDatabase() {
+	if !req.BundledDatabase() {
 		databaseService = ""
 	}
 
