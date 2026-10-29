@@ -7,6 +7,7 @@ import (
 
 	"github.com/GloriousPurposeVariant/runivra/internal/postgres"
 	"github.com/GloriousPurposeVariant/runivra/internal/setup"
+	"github.com/GloriousPurposeVariant/runivra/internal/tui"
 )
 
 // remoteServer is the database server of a request, logged in to as user.
@@ -118,4 +119,36 @@ func createRemoteLogin(ctx context.Context, req setup.Request, options runOption
 		fmt.Println(paint(dim, "  Keep it somewhere safe. It is also written to the project's odoo.conf."))
 	}
 	return req, true
+}
+
+
+// wizardServer is the server the wizard describes, logged in to as user.
+func wizardServer(remote tui.Remote, user string, password string) postgres.Server {
+	return postgres.Server{Host: remote.Host, Port: remote.Port, User: user, Password: password, SSLMode: remote.SSLMode}
+}
+
+// plainRemoteError explains a server that did not answer in one line for the
+// wizard. PostgreSQL's own messages are already short.
+func plainRemoteError(err error, server postgres.Server) error {
+	if errors.Is(err, postgres.ErrUnreachable) {
+		return errors.New("Nothing answered at " + server.Address() + ". Check the address and port, and that the server accepts connections from this computer.")
+	}
+	return err
+}
+
+// checkRemoteLogin, checkRemoteAdmin and remoteRoleExists let the wizard test
+// a remote server while the user is still on the question.
+func checkRemoteLogin(remote tui.Remote, user string, password string) error {
+	server := wizardServer(remote, user, password)
+	return plainRemoteError(postgres.Check(context.Background(), server), server)
+}
+
+func checkRemoteAdmin(remote tui.Remote, user string, password string) error {
+	server := wizardServer(remote, user, password)
+	return plainRemoteError(postgres.Admin{Server: server}.Check(context.Background()), server)
+}
+
+func remoteRoleExists(remote tui.Remote, adminUser string, adminPassword string, name string) (bool, error) {
+	admin := postgres.Admin{Server: wizardServer(remote, adminUser, adminPassword)}
+	return admin.RoleExists(context.Background(), name)
 }

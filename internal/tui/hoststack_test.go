@@ -11,11 +11,13 @@ import (
 // "everything on this computer".
 func toHostStack(options Options) tea.Model {
 	var current tea.Model = newModelWith(options)
-	current = press(current, tea.KeyEnter, tea.KeyEnter)             // development, version
-	current = press(current, tea.KeyDown, tea.KeyDown, tea.KeyEnter) // everything on this computer
-	current = press(current, tea.KeyEnter, tea.KeyEnter)             // folder, name
-	current = press(current, tea.KeyEnter, tea.KeyEnter)             // no Enterprise, no custom repository
+	current = press(current, tea.KeyEnter, tea.KeyEnter) // development, version
+	current = press(current, tea.KeyDown, tea.KeyEnter)  // Odoo on this computer
+	current = press(current, tea.KeyEnter, tea.KeyEnter) // folder, name
+	current = press(current, tea.KeyEnter, tea.KeyEnter) // no Enterprise, no custom repository
+	current = press(current, tea.KeyEnter)               // database on this computer
 	return current
+
 }
 
 func TestHostStackAsksAboutPythonAndNeverAboutDocker(t *testing.T) {
@@ -69,9 +71,10 @@ func TestDockerStacksNeverAskAboutPython(t *testing.T) {
 	asked := false
 	options := Options{PythonMissing: func(odooVersion string) bool { asked = true; return true }}
 	var current tea.Model = newModelWith(options)
-	current = press(current, tea.KeyEnter, tea.KeyEnter, tea.KeyEnter) // development, version, everything in Docker
+	current = press(current, tea.KeyEnter, tea.KeyEnter, tea.KeyEnter) // development, version, Odoo in Docker
 	current = press(current, tea.KeyEnter, tea.KeyEnter)               // folder, name
 	current = press(current, tea.KeyEnter, tea.KeyEnter)               // no Enterprise, no custom repository
+	current = press(current, tea.KeyEnter)                             // database in Docker
 	if got := current.(model).current().key; got != "port" || asked {
 		t.Fatalf("question = %q, python checked = %v; a Docker stack has no use for Python on this computer", got, asked)
 	}

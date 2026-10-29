@@ -93,6 +93,9 @@ func runSetup(args []string) int {
 			PythonMissing:      pythonMissing,
 			PortIsFree:         setup.PortIsFree,
 			Versions:           setup.SupportedVersions,
+			CheckRemoteLogin:   checkRemoteLogin,
+			CheckRemoteAdmin:   checkRemoteAdmin,
+			RemoteRoleExists:   remoteRoleExists,
 		})
 
 		if err != nil {
@@ -108,9 +111,6 @@ func runSetup(args []string) int {
 			path = "."
 		}
 		stack := setup.StackDocker
-		if answers.HostDatabase {
-			stack = setup.StackHostDB
-		}
 		if answers.HostOdoo {
 			stack = setup.StackHost
 		}
@@ -127,10 +127,14 @@ func runSetup(args []string) int {
 			CustomToken:     answers.CustomToken,
 			Port:            answers.Port,
 			Stack:           stack,
+			DB:              answers.DB,
+			DBHost:          answers.DBHost,
+			DBPort:          answers.DBPort,
+			DBSSLMode:       answers.DBSSLMode,
 			DBUser:          answers.DBUser,
 			DBPassword:      answers.DBPassword,
 		}, runOptions{installDocker: answers.InstallDocker, installPostgres: answers.InstallPostgres, installPython: answers.InstallPython,
-			createDBUser: answers.CreateDBUser, dbAdminPassword: answers.DBAdminPassword,
+			createDBUser: answers.CreateDBUser, dbAdminUser: answers.DBAdminUser, dbAdminPassword: answers.DBAdminPassword,
 			start: answers.Start, ask: false})
 
 	}
