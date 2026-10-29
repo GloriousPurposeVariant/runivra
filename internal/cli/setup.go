@@ -168,7 +168,7 @@ func runSetup(args []string) int {
 
 }
 
-// plainLoginError turns psql's long message into one line for the wizard.
+// plainLoginError turns PostgreSQL's message into one line for the wizard.
 func plainLoginError(err error, who string) error {
 	if err == nil {
 		return nil
@@ -176,7 +176,7 @@ func plainLoginError(err error, who string) error {
 	if strings.Contains(err.Error(), "password authentication failed") {
 		return errors.New("That password is not right for " + who + ".")
 	}
-	if strings.Contains(err.Error(), "Connection refused") {
+	if errors.Is(err, postgres.ErrUnreachable) {
 		return errors.New("PostgreSQL is not running on this computer.")
 	}
 	lines := strings.Split(strings.TrimSpace(err.Error()), "\n")
@@ -186,12 +186,12 @@ func plainLoginError(err error, who string) error {
 // checkLogin and checkAdmin let the wizard test a login while the user is
 // still on the question, instead of failing after the wizard has closed.
 func checkLogin(user string, password string) error {
-	err := postgres.Check(context.Background(), postgres.Detect().Psql, user, password)
+	err := postgres.Check(context.Background(), postgres.Local(user, password))
 	return plainLoginError(err, "user "+user)
 }
 
 func checkAdmin(password string) error {
-	err := postgres.CheckAdmin(context.Background(), postgres.Detect().Psql, password)
+	err := postgres.LocalAdmin(postgres.Detect().Psql, password).Check(context.Background())
 	return plainLoginError(err, "the postgres administrator")
 }
 
@@ -203,7 +203,7 @@ func roleExists() func(adminPassword string, name string) (bool, error) {
 		return nil
 	}
 	return func(adminPassword string, name string) (bool, error) {
-		return postgres.RoleExists(context.Background(), postgres.Detect().Psql, adminPassword, name)
+		return postgres.LocalAdmin(postgres.Detect().Psql, adminPassword).RoleExists(context.Background(), name)
 	}
 }
 

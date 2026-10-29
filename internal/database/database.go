@@ -6,9 +6,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/GloriousPurposeVariant/runivra/internal/odooconf"
@@ -28,12 +28,9 @@ ORDER BY datname`
 
 // Connection is how to reach a project's PostgreSQL from this computer.
 type Connection struct {
-	Service  string // the compose service; "" when PostgreSQL runs on this computer
-	Compose  string // the compose file, used only with a service
-	Host     string
-	Port     string
-	User     string
-	Password string
+	Service string // the compose service; "" when PostgreSQL is reached over the network
+	Compose string // the compose file, used only with a service
+	Server  postgres.Server
 }
 
 // ConnectionFor reads the database settings from the project's odoo.conf.
@@ -45,20 +42,31 @@ func ConnectionFor(view workspace.View) Connection {
 		}
 	}
 	connection := Connection{
-		Service:  view.Config.Docker.DatabaseService,
-		Compose:  filepath.Join(view.Root, filepath.FromSlash(view.Config.Docker.ComposeFile)),
-		Host:     localHost(values["db_host"]),
-		Port:     values["db_port"],
-		User:     values["db_user"],
-		Password: values["db_password"],
+		Service: view.Config.Docker.DatabaseService,
+		Compose: filepath.Join(view.Root, filepath.FromSlash(view.Config.Docker.ComposeFile)),
+		Server: postgres.Server{
+			Host:     localHost(values["db_host"]),
+			Port:     postgres.Port,
+			User:     unset(values["db_user"]),
+			Password: unset(values["db_password"]),
+			SSLMode:  unset(values["db_sslmode"]),
+		},
 	}
-	if connection.Port == "" || connection.Port == "False" {
-		connection.Port = "5432"
+	if port, err := strconv.Atoi(values["db_port"]); err == nil {
+		connection.Server.Port = port
 	}
-	if connection.User == "" {
-		connection.User = "odoo"
+	if connection.Server.User == "" {
+		connection.Server.User = "odoo"
 	}
 	return connection
+}
+
+// unset treats Odoo's way of writing "no value" as empty.
+func unset(value string) string {
+	if value == "False" {
+		return ""
+	}
+	return value
 }
 
 // localHost turns the name Odoo uses from inside its container into the name
@@ -71,14 +79,11 @@ func localHost(host string) string {
 	return host
 }
 
-// command builds the psql call for a query, and the environment it needs.
-func (c Connection) command(psql string, query string) ([]string, []string) {
-	if c.Service != "" {
-		return []string{"docker", "compose", "-f", c.Compose, "exec", "-T", c.Service,
-			"psql", "-U", c.User, "-d", "postgres", "-At", "-c", query}, nil
-	}
-	return []string{psql, "-U", c.User, "-h", c.Host, "-p", c.Port, "-d", "postgres", "-w", "-At", "-c", query},
-		[]string{"PGPASSWORD=" + c.Password}
+// command builds the psql call that runs a query inside the database
+// container, whose port is not published on this computer.
+func (c Connection) command(query string) []string {
+	return []string{"docker", "compose", "-f", c.Compose, "exec", "-T", c.Service,
+		"psql", "-U", c.Server.User, "-d", "postgres", "-At", "-c", query}
 }
 
 func parseNames(output string) []string {
@@ -92,27 +97,28 @@ func parseNames(output string) []string {
 }
 
 // List returns the project's databases, asking PostgreSQL inside its
-// container or on this computer, whichever the project uses.
+// container, or wherever odoo.conf says it is.
 func List(ctx context.Context, view workspace.View) ([]string, error) {
 	connection := ConnectionFor(view)
-
-	psql := ""
 	if connection.Service == "" {
-		psql = postgres.Detect().Psql
-		if psql == "" {
-			return nil, errors.New("this project uses PostgreSQL on this computer, but psql was not found; run \"runivra postgres\"")
+		names, err := connection.Server.Strings(ctx, listQuery)
+		if errors.Is(err, postgres.ErrUnreachable) {
+			return nil, ErrNotRunning
 		}
+		if err != nil {
+			return nil, fmt.Errorf("could not list databases: %w", err)
+		}
+		return names, nil
 	}
 
-	args, env := connection.command(psql, listQuery)
+	args := connection.command(listQuery)
 	cmd := exec.CommandContext(ctx, args[0], args[1:]...)
-	cmd.Env = append(os.Environ(), env...)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	output, err := cmd.Output()
 	if err != nil {
 		message := strings.TrimSpace(stderr.String())
-		if strings.Contains(message, "is not running") || strings.Contains(message, "Connection refused") {
+		if strings.Contains(message, "is not running") {
 			return nil, ErrNotRunning
 		}
 		return nil, fmt.Errorf("could not list databases: %s", message)

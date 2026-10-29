@@ -155,27 +155,58 @@ func Install(ctx context.Context, in io.Reader, out io.Writer, adminPassword str
 	return fmt.Errorf("PostgreSQL was installed but is not accepting connections on port %d yet", Port)
 }
 
-// adminCommand builds the command that runs SQL as PostgreSQL's administrator.
-// How that administrator is reached differs per system.
-func adminCommand(system string, root bool, psql string, adminPassword string, sql string) ([]string, []string) {
-	switch system {
-	case "windows":
-		return []string{psql, "-U", "postgres", "-h", "127.0.0.1", "-p", fmt.Sprint(Port), "-d", "postgres", "-v", "ON_ERROR_STOP=1", "-c", sql},
-			[]string{"PGPASSWORD=" + adminPassword}
-	case "darwin":
-		return []string{psql, "-d", "postgres", "-v", "ON_ERROR_STOP=1", "-c", sql}, nil
+// Admin is how Runivra acts as PostgreSQL's administrator, once, to create
+// Odoo's database user. On Linux and macOS the local administrator is the
+// system's own postgres account, reached through psql without a password.
+// Everywhere else it is an ordinary login with a password.
+type Admin struct {
+	Server Server
+	Psql   string // set only for the local administrator on Linux and macOS
+}
+
+// LocalAdmin is the administrator of PostgreSQL on this computer. On Windows
+// that is the postgres user with the password chosen at install time.
+func LocalAdmin(psql string, password string) Admin {
+	if runtime.GOOS == "windows" {
+		return Admin{Server: Local("postgres", password)}
+	}
+	return Admin{Psql: psql}
+}
+
+// adminCommand builds the psql call that runs SQL as the system's postgres
+// account on Linux and macOS.
+func adminCommand(system string, root bool, psql string, sql string) []string {
+	if system == "darwin" {
+		return []string{psql, "-d", "postgres", "-v", "ON_ERROR_STOP=1", "-At", "-c", sql}
 	}
 	if root {
-		return []string{"runuser", "-u", "postgres", "--", psql, "-v", "ON_ERROR_STOP=1", "-c", sql}, nil
+		return []string{"runuser", "-u", "postgres", "--", psql, "-v", "ON_ERROR_STOP=1", "-At", "-c", sql}
 	}
-	return []string{"sudo", "-u", "postgres", psql, "-v", "ON_ERROR_STOP=1", "-c", sql}, nil
+	return []string{"sudo", "-u", "postgres", psql, "-v", "ON_ERROR_STOP=1", "-At", "-c", sql}
+}
+
+// query runs a query as the administrator and returns one value per row.
+func (a Admin) query(ctx context.Context, sql string) ([]string, error) {
+	if a.Psql == "" {
+		return a.Server.Strings(ctx, sql)
+	}
+	output, err := capture(ctx, adminCommand(runtime.GOOS, os.Geteuid() == 0, a.Psql, sql))
+	if err != nil {
+		return nil, err
+	}
+	var values []string
+	for _, line := range strings.Split(output, "\n") {
+		if value := strings.TrimSpace(line); value != "" {
+			values = append(values, value)
+		}
+	}
+	return values, nil
 }
 
 // capture runs a command and returns what it printed. On failure the error
 // carries the program's own message.
-func capture(ctx context.Context, args []string, env []string) (string, error) {
+func capture(ctx context.Context, args []string) (string, error) {
 	cmd := exec.CommandContext(ctx, args[0], args[1:]...)
-	cmd.Env = append(os.Environ(), env...)
 	var output bytes.Buffer
 	cmd.Stdout = &output
 	cmd.Stderr = &output
@@ -189,21 +220,29 @@ func capture(ctx context.Context, args []string, env []string) (string, error) {
 	return output.String(), nil
 }
 
-func run(ctx context.Context, args []string, env []string) error {
-	_, err := capture(ctx, args, env)
+// Check confirms that Runivra can act as the administrator.
+func (a Admin) Check(ctx context.Context) error {
+	_, err := a.query(ctx, "SELECT 1")
 	return err
 }
 
-// CreateRole makes the database user Odoo connects as. Odoo creates its own
-// databases, so the user is allowed to do that and nothing more.
+// roleName is the pattern a database user name must match. It is strict
+// because a name cannot be sent as a query parameter in CREATE ROLE.
 var roleName = regexp.MustCompile(`^[a-z_][a-z0-9_]{0,62}$`)
+
+func checkRoleName(role string) error {
+	if !roleName.MatchString(role) {
+		return fmt.Errorf("%q cannot be used as a database user name; use lowercase letters, digits and underscores, starting with a letter", role)
+	}
+	return nil
+}
 
 // roleSQL builds the statement that creates the user. The name is checked
 // against a strict pattern, and any quote in the password is doubled, which
 // is how SQL writes a quote inside a quoted value.
 func roleSQL(role string, password string) (string, error) {
-	if !roleName.MatchString(role) {
-		return "", fmt.Errorf("%q cannot be used as a database user name; use lowercase letters, digits and underscores, starting with a letter", role)
+	if err := checkRoleName(role); err != nil {
+		return "", err
 	}
 	if password == "" {
 		return "", errors.New("the database user needs a password")
@@ -212,35 +251,24 @@ func roleSQL(role string, password string) (string, error) {
 	return fmt.Sprintf("CREATE ROLE %s LOGIN CREATEDB PASSWORD '%s'", role, escaped), nil
 }
 
-func CreateRole(ctx context.Context, psql string, adminPassword string, role string, password string) error {
+// CreateRole makes the database user Odoo connects as. Odoo creates its own
+// databases, so the user is allowed to do that and nothing more.
+func (a Admin) CreateRole(ctx context.Context, role string, password string) error {
 	sql, err := roleSQL(role, password)
 	if err != nil {
 		return err
 	}
-	args, env := adminCommand(runtime.GOOS, os.Geteuid() == 0, psql, adminPassword, sql)
-	return run(ctx, args, env)
-}
-
-// CheckAdmin confirms that Runivra can act as PostgreSQL's administrator,
-// which is needed once to create a user.
-func CheckAdmin(ctx context.Context, psql string, adminPassword string) error {
-	args, env := adminCommand(runtime.GOOS, os.Geteuid() == 0, psql, adminPassword, "SELECT 1")
-	return run(ctx, args, env)
+	_, err = a.query(ctx, sql)
+	return err
 }
 
 // RoleExists asks the administrator whether a database user is already there.
-func RoleExists(ctx context.Context, psql string, adminPassword string, role string) (bool, error) {
-	if !roleName.MatchString(role) {
-		return false, fmt.Errorf("%q cannot be used as a database user name; use lowercase letters, digits and underscores, starting with a letter", role)
-	}
-	sql := fmt.Sprintf("SELECT count(*) FROM pg_roles WHERE rolname = '%s'", role)
-	args, env := adminCommand(runtime.GOOS, os.Geteuid() == 0, psql, adminPassword, sql)
-	args = append(args, "-At")
-	answer, err := capture(ctx, args, env)
-	if err != nil {
+func (a Admin) RoleExists(ctx context.Context, role string) (bool, error) {
+	if err := checkRoleName(role); err != nil {
 		return false, err
 	}
-	return strings.TrimSpace(answer) != "0", nil
+	found, err := a.query(ctx, fmt.Sprintf("SELECT rolname FROM pg_roles WHERE rolname = '%s'", role))
+	return len(found) > 0, err
 }
 
 // suitable decides whether a login that works is also one Odoo can use.
@@ -249,23 +277,24 @@ func suitable(user string, answer string) error {
 	if user == "postgres" {
 		return errors.New("Odoo refuses to run as the postgres administrator; give a separate user that may create databases")
 	}
-	if strings.TrimSpace(answer) != "t" {
+	if answer != "true" {
 		return fmt.Errorf("user %q is not allowed to create databases, which Odoo needs; as the administrator run: ALTER ROLE %s CREATEDB", user, user)
 	}
 	return nil
 }
 
-// Check confirms that a user and password can log in, and that the user is
-// one Odoo can work with.
-func Check(ctx context.Context, psql string, user string, password string) error {
-	if user == "postgres" {
-		return suitable(user, "")
+// Check confirms that the server's login works, and that the user is one
+// Odoo can work with.
+func Check(ctx context.Context, server Server) error {
+	if server.User == "postgres" {
+		return suitable(server.User, "")
 	}
-	args := []string{psql, "-U", user, "-h", "127.0.0.1", "-p", fmt.Sprint(Port), "-d", "postgres", "-w", "-At",
-		"-c", "SELECT rolcreatedb OR rolsuper FROM pg_roles WHERE rolname = current_user"}
-	answer, err := capture(ctx, args, []string{"PGPASSWORD=" + password})
+	answer, err := server.Strings(ctx, "SELECT (rolcreatedb OR rolsuper)::text FROM pg_roles WHERE rolname = current_user")
 	if err != nil {
 		return err
 	}
-	return suitable(user, answer)
+	if len(answer) == 0 {
+		return suitable(server.User, "")
+	}
+	return suitable(server.User, answer[0])
 }

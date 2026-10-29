@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/GloriousPurposeVariant/runivra/internal/postgres"
 	"github.com/GloriousPurposeVariant/runivra/internal/workspace"
 )
 
@@ -52,30 +53,42 @@ func TestConnectionForReadsOdooConf(t *testing.T) {
 	view := workspace.View{Root: root, ConfPath: conf}
 	view.Config.Docker.ComposeFile = "docker-compose.yml"
 
-	host := ConnectionFor(view)
-	if host.Host != "127.0.0.1" || host.Port != "5433" || host.User != "shop" || host.Password != "s3cret" {
-		t.Fatalf("connection = %+v; the container's name for this computer must become 127.0.0.1", host)
+	server := ConnectionFor(view).Server
+	want := postgres.Server{Host: "127.0.0.1", Port: 5433, User: "shop", Password: "s3cret"}
+	if server != want {
+		t.Fatalf("server = %+v; the container's name for this computer must become 127.0.0.1", server)
 	}
-	args, env := host.command("psql", "SELECT 1")
-	if args[0] != "psql" || len(env) != 1 || env[0] != "PGPASSWORD=s3cret" {
-		t.Fatalf("host command = %v, %v; want psql run here with the password in the environment", args, env)
+
+	view.Config.Docker.DatabaseService = "db"
+	args := ConnectionFor(view).command("SELECT 1")
+	if args[0] != "docker" || !strings.Contains(strings.Join(args, " "), "exec -T db psql -U shop") {
+		t.Fatalf("docker command = %v; want psql run inside the database container", args)
 	}
 	for _, arg := range args {
 		if strings.Contains(arg, "s3cret") {
 			t.Fatalf("the password must not be on the command line: %v", args)
 		}
 	}
+}
 
-	view.Config.Docker.DatabaseService = "db"
-	args, env = ConnectionFor(view).command("", "SELECT 1")
-	if args[0] != "docker" || env != nil {
-		t.Fatalf("docker command = %v, %v; want psql run inside the database container", args, env)
+// A managed database such as AWS RDS: a real host name, and SSL required.
+func TestConnectionForRemoteServer(t *testing.T) {
+	root := t.TempDir()
+	conf := filepath.Join(root, "odoo.conf")
+	content := "[options]\ndb_host = shop.abc123.eu-west-1.rds.amazonaws.com\ndb_user = shop\ndb_password = s3cret\ndb_sslmode = require\n"
+	if err := os.WriteFile(conf, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	server := ConnectionFor(workspace.View{Root: root, ConfPath: conf}).Server
+	if server.Host != "shop.abc123.eu-west-1.rds.amazonaws.com" || server.Port != 5432 || server.SSLMode != "require" {
+		t.Fatalf("server = %+v; want the host as written, the default port and SSL required", server)
 	}
 }
 
 func TestConnectionDefaults(t *testing.T) {
-	connection := ConnectionFor(workspace.View{Root: t.TempDir()})
-	if connection.Host != "127.0.0.1" || connection.Port != "5432" || connection.User != "odoo" {
-		t.Fatalf("connection = %+v; want Odoo's own defaults when odoo.conf says nothing", connection)
+	server := ConnectionFor(workspace.View{Root: t.TempDir()}).Server
+	if server.Host != "127.0.0.1" || server.Port != 5432 || server.User != "odoo" || server.SSLMode != "" {
+		t.Fatalf("server = %+v; want Odoo's own defaults when odoo.conf says nothing", server)
 	}
 }
+

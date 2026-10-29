@@ -1,7 +1,11 @@
 package postgres
 
 import (
+	"context"
+	"errors"
 	"net"
+	"net/url"
+
 	"os"
 	"path/filepath"
 	"strings"
@@ -55,29 +59,53 @@ func TestInstallCommands(t *testing.T) {
 }
 
 func TestAdminCommand(t *testing.T) {
-	args, env := adminCommand("windows", false, `C:\pg\psql.exe`, "secret1", "SELECT 1")
-	if args[0] != `C:\pg\psql.exe` || len(env) != 1 || env[0] != "PGPASSWORD=secret1" {
-		t.Fatalf("windows = %v, %v; want psql with the password in the environment", args, env)
-	}
-	for _, arg := range args {
-		if strings.Contains(arg, "secret1") {
-			t.Fatalf("the administrator password must not be on the command line: %v", args)
-		}
+	args := adminCommand("linux", false, "psql", "SELECT 1")
+	if args[0] != "sudo" || args[2] != "postgres" {
+		t.Fatalf("linux = %v; want sudo -u postgres", args)
 	}
 
-	args, env = adminCommand("linux", false, "psql", "", "SELECT 1")
-	if args[0] != "sudo" || args[2] != "postgres" || env != nil {
-		t.Fatalf("linux = %v, %v; want sudo -u postgres", args, env)
-	}
-
-	args, _ = adminCommand("linux", true, "psql", "", "SELECT 1")
+	args = adminCommand("linux", true, "psql", "SELECT 1")
 	if args[0] != "runuser" {
 		t.Fatalf("linux as root = %v; want runuser", args)
 	}
 
-	args, _ = adminCommand("darwin", false, "psql", "", "SELECT 1")
+	args = adminCommand("darwin", false, "psql", "SELECT 1")
 	if args[0] != "psql" {
 		t.Fatalf("darwin = %v; want psql run directly", args)
+	}
+}
+
+func TestServerURL(t *testing.T) {
+	server := Server{Host: "db.example.com", Port: 6432, User: "odoo", Password: "p@ss:w/rd", SSLMode: "require"}
+	address, err := url.Parse(server.url())
+	if err != nil {
+		t.Fatal(err)
+	}
+	password, _ := address.User.Password()
+	if address.Host != "db.example.com:6432" || address.User.Username() != "odoo" || password != "p@ss:w/rd" {
+		t.Fatalf("url = %s; the password must survive escaping", server.url())
+	}
+	if address.Query().Get("sslmode") != "require" {
+		t.Fatalf("url = %s; want sslmode=require", server.url())
+	}
+	if strings.Contains(Local("odoo", "x").url(), "sslmode") {
+		t.Fatal("without a mode the driver's default must be left alone")
+	}
+}
+
+// Nothing listens on a port that was just closed, so the error must say the
+// server is not answering rather than show the driver's long message.
+func TestUnreachable(t *testing.T) {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	port := listener.Addr().(*net.TCPAddr).Port
+	listener.Close()
+
+	err = Check(context.Background(), Server{Host: "127.0.0.1", Port: port, User: "odoo", Password: "x"})
+	if !errors.Is(err, ErrUnreachable) {
+		t.Fatalf("error = %v, want ErrUnreachable", err)
 	}
 }
 
@@ -138,13 +166,13 @@ func TestRoleSQL(t *testing.T) {
 }
 
 func TestSuitable(t *testing.T) {
-	if err := suitable("odoo", "t\n"); err != nil {
+	if err := suitable("odoo", "true"); err != nil {
 		t.Fatalf("a user that may create databases is fine: %v", err)
 	}
-	if err := suitable("odoo", "f\n"); err == nil {
+	if err := suitable("odoo", "false"); err == nil {
 		t.Fatal("a user that may not create databases must be refused")
 	}
-	if err := suitable("postgres", "t\n"); err == nil {
+	if err := suitable("postgres", "true"); err == nil {
 		t.Fatal("the postgres administrator must be refused, because Odoo will not run as it")
 	}
 }

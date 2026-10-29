@@ -122,7 +122,7 @@ func ensurePostgres(ctx context.Context, request postgresRequest) (databaseLogin
 		fmt.Println(paint(red, "runivra postgres:"), "a password is needed for user", user+"; give --password or set RUNIVRA_DB_PASSWORD")
 		return databaseLogin{}, false
 	}
-	if err := postgres.Check(ctx, status.Psql, user, password); err != nil {
+	if err := postgres.Check(ctx, postgres.Local(user, password)); err != nil {
 		fmt.Println(paint(red, "That login cannot be used:"), err)
 		fmt.Println(paint(dim, "To have Runivra create a new user instead, add --create (with runivra setup: --db-create)."))
 		return databaseLogin{}, false
@@ -158,7 +158,7 @@ func createLogin(ctx context.Context, status postgres.Status, request postgresRe
 		}
 	}
 
-	exists, err := postgres.RoleExists(ctx, status.Psql, adminPassword, login.User)
+	exists, err := postgres.LocalAdmin(status.Psql, adminPassword).RoleExists(ctx, login.User)
 	if err != nil {
 		fmt.Println(paint(red, "The existing database users could not be checked:"), err)
 		return databaseLogin{}, false
@@ -168,12 +168,12 @@ func createLogin(ctx context.Context, status postgres.Status, request postgresRe
 		fmt.Println(paint(dim, "Choose another name, or use that user with its own password."))
 		return databaseLogin{}, false
 	}
-	if err := postgres.CreateRole(ctx, status.Psql, adminPassword, login.User, login.Password); err != nil {
+	if err := postgres.LocalAdmin(status.Psql, adminPassword).CreateRole(ctx, login.User, login.Password); err != nil {
 		fmt.Println(paint(red, "The database user could not be created:"), err)
 		return databaseLogin{}, false
 	}
 
-	if err := postgres.Check(ctx, status.Psql, login.User, login.Password); err != nil {
+	if err := postgres.Check(ctx, postgres.Local(login.User, login.Password)); err != nil {
 		fmt.Println(paint(red, "The new database user cannot log in:"), err)
 		return databaseLogin{}, false
 	}
@@ -209,11 +209,11 @@ func installPostgres(ctx context.Context, user string, password string) (databas
 	if !chosen {
 		login.Password = postgres.NewPassword()
 	}
-	if err := postgres.CreateRole(ctx, status.Psql, adminPassword, login.User, login.Password); err != nil {
+	if err := postgres.LocalAdmin(status.Psql, adminPassword).CreateRole(ctx, login.User, login.Password); err != nil {
 		fmt.Println(paint(red, "The database user could not be created:"), err)
 		return databaseLogin{}, false
 	}
-	if err := postgres.Check(ctx, status.Psql, login.User, login.Password); err != nil {
+	if err := postgres.Check(ctx, postgres.Local(login.User, login.Password)); err != nil {
 		fmt.Println(paint(red, "The new database user cannot log in:"), err)
 		return databaseLogin{}, false
 	}
