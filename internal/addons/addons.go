@@ -16,6 +16,7 @@ const (
 	KindCustom     = "custom"
 	KindEnterprise = "enterprise"
 	KindImage      = "image"
+	KindCore       = "core" // Odoo's own addons, in a source checkout on this computer
 )
 
 // Folder is one entry of Odoo's addons_path.
@@ -37,9 +38,40 @@ func Resolve(addonsPath string, volumes []compose.Volume) []Folder {
 		folder := Folder{Container: entry, Host: hostFor(entry, volumes), Kind: KindImage}
 		if folder.Host != "" {
 			folder.Kind = KindCustom
-			if isDir(filepath.Join(folder.Host, "web_enterprise")) {
+			if looksLikeEnterprise(folder.Host) {
 				folder.Kind = KindEnterprise
 			}
+		}
+		folders = append(folders, folder)
+	}
+	return folders
+}
+
+// ResolveHost is Resolve for Odoo running on this computer, where the
+// entries of addons_path are already real folders. Relative entries are taken
+// from root. Odoo's own addons inside the source checkout are marked core.
+func ResolveHost(addonsPath string, root string) []Folder {
+	core := map[string]bool{
+		filepath.Clean(filepath.Join(root, "addons")):         true,
+		filepath.Clean(filepath.Join(root, "odoo", "addons")): true,
+	}
+	var folders []Folder
+	for _, entry := range strings.Split(addonsPath, ",") {
+		entry = strings.TrimSpace(entry)
+		if entry == "" {
+			continue
+		}
+		host := filepath.FromSlash(entry)
+		if !filepath.IsAbs(host) {
+			host = filepath.Join(root, host)
+		}
+		host = filepath.Clean(host)
+		folder := Folder{Container: entry, Host: host, Kind: KindCustom}
+		switch {
+		case core[host]:
+			folder.Kind = KindCore
+		case looksLikeEnterprise(host):
+			folder.Kind = KindEnterprise
 		}
 		folders = append(folders, folder)
 	}
@@ -147,6 +179,15 @@ func ignoresEverythingBut(ignore string, file string) bool {
 		}
 	}
 	return excludesAll && !allowed
+}
+
+// looksLikeEnterprise recognises the Enterprise folder by its content, or by
+// its name while it is still empty.
+func looksLikeEnterprise(folder string) bool {
+	if isDir(filepath.Join(folder, "web_enterprise")) {
+		return true
+	}
+	return strings.Contains(strings.ToLower(filepath.Base(folder)), "enterprise")
 }
 
 func isDir(name string) bool {

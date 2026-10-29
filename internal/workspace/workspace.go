@@ -7,6 +7,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/GloriousPurposeVariant/runivra/internal/addons"
@@ -27,6 +28,9 @@ type View struct {
 
 // Load reads the compose file through Docker Compose and builds the view.
 func Load(ctx context.Context, root string, config project.Config) (View, error) {
+	if config.Odoo.Runtime == "host" {
+		return BuildHost(root, config), nil
+	}
 	file, err := compose.Load(ctx, filepath.Join(root, filepath.FromSlash(config.Docker.ComposeFile)))
 	if err != nil {
 		return View{Root: root, Config: config}, err
@@ -54,6 +58,42 @@ func Build(root string, config project.Config, file compose.File) View {
 
 	view.Problems = addons.RequirementProblems(odoo, view.Addons)
 	return view
+}
+
+// BuildHost assembles the view of a project that runs on this computer.
+// There is no compose file: odoo.conf already names real folders and the
+// port Odoo listens on.
+func BuildHost(root string, config project.Config) View {
+	view := View{Root: root, Config: config, Port: 8069}
+
+	name := config.Paths.Config
+	if name == "" {
+		name = "odoo.conf"
+	}
+	if candidate := absolute(root, name); fileExists(candidate) {
+		view.ConfPath = candidate
+	}
+	if view.ConfPath != "" {
+		if values, err := odooconf.Read(view.ConfPath); err == nil {
+			view.Addons = addons.ResolveHost(values["addons_path"], root)
+			if port, err := strconv.Atoi(values["http_port"]); err == nil {
+				view.Port = port
+			}
+		}
+	}
+
+	if config.Paths.Python != "" {
+		environment := absolute(root, config.Paths.Python)
+		if !fileExists(filepath.Join(environment, "Scripts", "python.exe")) && !fileExists(filepath.Join(environment, "bin", "python")) {
+			view.Problems = append(view.Problems, "The Python environment "+config.Paths.Python+" is missing, so Odoo cannot start. Run setup again or recreate it.")
+		}
+	}
+	return view
+}
+
+func fileExists(name string) bool {
+	info, err := os.Stat(name)
+	return err == nil && !info.IsDir()
 }
 
 // AddonsKey identifies the custom folders in use right now.
